@@ -1,0 +1,100 @@
+import unittest
+
+import pandas as pd
+
+from sports_analytics.metrics.teams import (
+    add_team_discipline,
+    build_team_match_view,
+    compare_teams,
+    head_to_head_summary,
+)
+
+
+class TeamMetricsTest(unittest.TestCase):
+    def test_compare_teams_and_red_card_impact_data_is_preserved(self):
+        games = pd.DataFrame(
+            [
+                {
+                    "game_id": 1,
+                    "date": "2024-01-01",
+                    "season": 2024,
+                    "competition_id": "L1",
+                    "home_club_id": 10,
+                    "away_club_id": 20,
+                    "home_club_name": "Local",
+                    "away_club_name": "Visitante",
+                    "home_club_goals": 2,
+                    "away_club_goals": 1,
+                }
+            ]
+        )
+        appearances = pd.DataFrame(
+            [
+                {"game_id": 1, "player_club_id": 10, "red_cards": 1},
+                {"game_id": 1, "player_club_id": 10, "red_cards": 0},
+                {"game_id": 1, "player_club_id": 20, "red_cards": 0},
+            ]
+        )
+
+        matches = add_team_discipline(build_team_match_view(games), appearances)
+        comparison = compare_teams(matches, 10, 20)
+
+        self.assertEqual(comparison.loc[comparison["team_id"] == 10, "win_rate"].iloc[0], 1.0)
+        self.assertEqual(matches.loc[matches["team_id"] == 10, "team_red_cards"].iloc[0], 1)
+        self.assertEqual(matches.loc[matches["team_id"] == 20, "team_red_cards"].iloc[0], 0)
+
+    def test_head_to_head_summary_counts_wins_draws_and_percentages(self):
+        games = pd.DataFrame(
+            [
+                {
+                    "game_id": 1,
+                    "date": "2024-01-01",
+                    "season": 2024,
+                    "competition_id": "L1",
+                    "home_club_id": 10,
+                    "away_club_id": 20,
+                    "home_club_name": "A",
+                    "away_club_name": "B",
+                    "home_club_goals": 2,
+                    "away_club_goals": 1,
+                },
+                {
+                    "game_id": 2,
+                    "date": "2024-02-01",
+                    "season": 2024,
+                    "competition_id": "L1",
+                    "home_club_id": 20,
+                    "away_club_id": 10,
+                    "home_club_name": "B",
+                    "away_club_name": "A",
+                    "home_club_goals": 3,
+                    "away_club_goals": 0,
+                },
+                {
+                    "game_id": 3,
+                    "date": "2024-03-01",
+                    "season": 2024,
+                    "competition_id": "L1",
+                    "home_club_id": 10,
+                    "away_club_id": 20,
+                    "home_club_name": "A",
+                    "away_club_name": "B",
+                    "home_club_goals": 1,
+                    "away_club_goals": 1,
+                },
+            ]
+        )
+
+        summary = head_to_head_summary(games, 10, 20)
+
+        self.assertEqual(summary["played"], 3)
+        self.assertEqual(summary["team_a_wins"], 1)
+        self.assertEqual(summary["draws"], 1)
+        self.assertEqual(summary["team_b_wins"], 1)
+        self.assertEqual(summary["team_a_win_rate"], 0.333)
+        self.assertEqual(summary["draw_rate"], 0.333)
+        self.assertEqual(summary["team_b_win_rate"], 0.333)
+
+
+if __name__ == "__main__":
+    unittest.main()
