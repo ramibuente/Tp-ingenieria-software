@@ -46,6 +46,7 @@ from sports_analytics.metrics.teams import (
     league_competitiveness,
     monthly_team_performance,
     red_card_impact,
+    summarize_head_to_head_by_team,
 )
 from sports_analytics.services.api_football import (
     ApiFootballConfigError,
@@ -238,6 +239,163 @@ def render_h2h_summary_metrics(summary: dict[str, object], team_a_name: str, tea
     metric_columns[3].metric(f"Gano {team_b_name}", f"{float(summary['team_b_win_rate']) * 100:.1f}%")
 
 
+def percent_label(value: object) -> str:
+    return f"{float(value) * 100:.1f}%"
+
+
+def render_metric_glossary() -> None:
+    with st.expander("Que significa cada metrica"):
+        st.markdown(
+            """
+- **Win Rate**: porcentaje de partidos ganados.
+- **BTTS**: partidos donde ambos equipos hicieron al menos un gol.
+- **Over 2.5**: partidos con 3 goles o mas en total.
+- **GF prom.**: goles a favor promedio por partido.
+- **GC prom.**: goles recibidos promedio por partido.
+- **Forma**: ultimos resultados, donde W es victoria, D empate y L derrota.
+- **Head-to-Head**: solo partidos historicos entre los dos equipos seleccionados.
+- **Amarillas/Rojas prom.**: tarjetas promedio por partido para cada equipo.
+            """
+        )
+
+
+def render_individual_team_overview(comparison: pd.DataFrame, team_a_name: str, team_b_name: str) -> None:
+    st.subheader("Rendimiento individual")
+    st.caption("Cada equipo se mide contra todos sus rivales recientes dentro de los filtros elegidos.")
+
+    team_a = comparison.iloc[0]
+    team_b = comparison.iloc[1]
+    columns = st.columns(4)
+    columns[0].metric(f"Win Rate {team_a_name}", percent_label(team_a["win_rate"]))
+    columns[1].metric(f"Win Rate {team_b_name}", percent_label(team_b["win_rate"]))
+    columns[2].metric(f"BTTS {team_a_name}", percent_label(team_a["btts_rate"]))
+    columns[3].metric(f"Over 2.5 {team_b_name}", percent_label(team_b["over_2_5_rate"]))
+
+    visual_data = comparison.melt(
+        id_vars=["team_name"],
+        value_vars=["win_rate", "over_2_5_rate", "btts_rate"],
+        var_name="Metrica",
+        value_name="Valor",
+    )
+    visual_data["Metrica"] = visual_data["Metrica"].replace(
+        {
+            "win_rate": "Win Rate",
+            "over_2_5_rate": "Over 2.5",
+            "btts_rate": "BTTS",
+        }
+    )
+    st.plotly_chart(
+        px.bar(
+            visual_data,
+            x="Metrica",
+            y="Valor",
+            color="team_name",
+            barmode="group",
+            text=visual_data["Valor"].map(lambda value: f"{value * 100:.0f}%"),
+            labels={"team_name": "Equipo", "Valor": "Porcentaje"},
+            range_y=[0, 1],
+        ),
+        width="stretch",
+    )
+
+
+def render_h2h_overview(
+    h2h_summary: dict[str, object],
+    h2h_by_team: pd.DataFrame,
+    team_a_name: str,
+    team_b_name: str,
+) -> None:
+    st.subheader("Enfrentamientos directos")
+    st.caption("Estos numeros usan solo partidos historicos entre los dos equipos seleccionados.")
+    render_h2h_summary_metrics(h2h_summary, team_a_name, team_b_name)
+
+    outcome_data = pd.DataFrame(
+        {
+            "Resultado": [team_a_name, "Empate", team_b_name],
+            "Partidos": [
+                int(h2h_summary["team_a_wins"]),
+                int(h2h_summary["draws"]),
+                int(h2h_summary["team_b_wins"]),
+            ],
+        }
+    )
+    chart_columns = st.columns([1, 1])
+    with chart_columns[0]:
+        st.plotly_chart(
+            px.bar(
+                outcome_data,
+                x="Resultado",
+                y="Partidos",
+                text="Partidos",
+                title="Resultados historicos",
+            ),
+            width="stretch",
+        )
+
+    if not h2h_by_team.empty:
+        h2h_display = h2h_by_team[
+            [
+                "team_name",
+                "played",
+                "wins",
+                "draws",
+                "losses",
+                "avg_goals_for",
+                "avg_goals_against",
+                "over_2_5_rate",
+                "btts_rate",
+                "avg_yellow_cards",
+                "avg_red_cards",
+                "recent_form",
+            ]
+        ].rename(
+            columns={
+                "team_name": "Equipo",
+                "played": "PJ",
+                "wins": "G",
+                "draws": "E",
+                "losses": "P",
+                "avg_goals_for": "GF prom.",
+                "avg_goals_against": "GC prom.",
+                "over_2_5_rate": "Over 2.5",
+                "btts_rate": "BTTS",
+                "avg_yellow_cards": "Amarillas prom.",
+                "avg_red_cards": "Rojas prom.",
+                "recent_form": "Forma",
+            }
+        )
+        h2h_display["Over 2.5"] = h2h_display["Over 2.5"].map(percent_label)
+        h2h_display["BTTS"] = h2h_display["BTTS"].map(percent_label)
+
+        discipline_data = h2h_by_team.melt(
+            id_vars=["team_name"],
+            value_vars=["avg_yellow_cards", "avg_red_cards"],
+            var_name="Tarjeta",
+            value_name="Promedio",
+        )
+        discipline_data["Tarjeta"] = discipline_data["Tarjeta"].replace(
+            {
+                "avg_yellow_cards": "Amarillas",
+                "avg_red_cards": "Rojas",
+            }
+        )
+        with chart_columns[1]:
+            st.plotly_chart(
+                px.bar(
+                    discipline_data,
+                    x="Tarjeta",
+                    y="Promedio",
+                    color="team_name",
+                    barmode="group",
+                    text="Promedio",
+                    title="Tarjetas en el historial",
+                    labels={"team_name": "Equipo"},
+                ),
+                width="stretch",
+            )
+        st.dataframe(h2h_display, hide_index=True, width="stretch")
+
+
 def render_api_football_oracle(games: pd.DataFrame) -> None:
     st.subheader("Oraculo API-Football")
     st.caption(
@@ -360,7 +518,9 @@ def render_match_tab(games: pd.DataFrame) -> None:
         return
 
     matches = build_team_match_view(filtered_games)
-    discipline = load_appearances(data_version("appearances"))[["game_id", "player_club_id", "red_cards"]]
+    discipline = load_appearances(data_version("appearances"))[
+        ["game_id", "player_club_id", "yellow_cards", "red_cards"]
+    ]
     matches = add_team_discipline(matches, discipline)
     team_options = team_options_from_matches(matches)
 
@@ -387,11 +547,8 @@ def render_match_tab(games: pd.DataFrame) -> None:
     team_b_id = int(team_b_options[team_b_name])
     comparison = compare_teams(matches, team_a_id, team_b_id, last_n=last_n)
 
-    metric_columns = st.columns(4)
-    metric_columns[0].metric("Win rate A", f"{comparison.iloc[0]['win_rate'] * 100:.1f}%")
-    metric_columns[1].metric("Win rate B", f"{comparison.iloc[1]['win_rate'] * 100:.1f}%")
-    metric_columns[2].metric("BTTS A", f"{comparison.iloc[0]['btts_rate'] * 100:.1f}%")
-    metric_columns[3].metric("Over 2.5 B", f"{comparison.iloc[1]['over_2_5_rate'] * 100:.1f}%")
+    render_metric_glossary()
+    render_individual_team_overview(comparison, team_a_name, team_b_name)
 
     competitiveness = league_competitiveness(
         matches,
@@ -414,6 +571,8 @@ def render_match_tab(games: pd.DataFrame) -> None:
             "avg_goals_against",
             "over_2_5_rate",
             "btts_rate",
+            "avg_yellow_cards",
+            "avg_red_cards",
             "recent_form",
         ]
     ].rename(
@@ -427,21 +586,14 @@ def render_match_tab(games: pd.DataFrame) -> None:
             "avg_goals_against": "GC prom.",
             "over_2_5_rate": "Over 2.5",
             "btts_rate": "BTTS",
+            "avg_yellow_cards": "Amarillas prom.",
+            "avg_red_cards": "Rojas prom.",
             "recent_form": "Forma",
         }
     )
+    display["Over 2.5"] = display["Over 2.5"].map(percent_label)
+    display["BTTS"] = display["BTTS"].map(percent_label)
     st.dataframe(display, hide_index=True, width="stretch")
-
-    chart_data = comparison.melt(
-        id_vars=["team_name"],
-        value_vars=["win_rate", "over_2_5_rate", "btts_rate"],
-        var_name="KPI",
-        value_name="Valor",
-    )
-    st.plotly_chart(
-        px.bar(chart_data, x="KPI", y="Valor", color="team_name", barmode="group"),
-        width="stretch",
-    )
 
     monthly = pd.concat(
         [
@@ -464,9 +616,9 @@ def render_match_tab(games: pd.DataFrame) -> None:
     st.subheader("Impacto de tarjeta roja")
     st.dataframe(impact, hide_index=True, width="stretch")
 
-    st.subheader("Head-to-head")
     h2h_summary = head_to_head_summary(filtered_games, team_a_id, team_b_id)
-    render_h2h_summary_metrics(h2h_summary, team_a_name, team_b_name)
+    h2h_by_team = summarize_head_to_head_by_team(matches, team_a_id, team_b_id)
+    render_h2h_overview(h2h_summary, h2h_by_team, team_a_name, team_b_name)
 
     h2h = head_to_head(filtered_games, team_a_id, team_b_id).head(20)
     if not h2h.empty:

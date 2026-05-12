@@ -16,7 +16,7 @@ REQUIRED_GAME_COLUMNS = [
     "away_club_goals",
 ]
 
-TEAM_DISCIPLINE_COLUMNS = ["game_id", "player_club_id", "red_cards"]
+TEAM_DISCIPLINE_COLUMNS = ["game_id", "player_club_id", "yellow_cards", "red_cards"]
 
 
 def build_team_match_view(games: pd.DataFrame) -> pd.DataFrame:
@@ -71,19 +71,34 @@ def build_team_match_view(games: pd.DataFrame) -> pd.DataFrame:
 
 
 def add_team_discipline(matches: pd.DataFrame, appearances: pd.DataFrame) -> pd.DataFrame:
-    if not set(TEAM_DISCIPLINE_COLUMNS).issubset(appearances.columns):
-        output = matches.copy()
+    output = matches.copy()
+    available_columns = [column for column in TEAM_DISCIPLINE_COLUMNS if column in appearances.columns]
+    if {"game_id", "player_club_id"}.difference(available_columns):
+        output["team_yellow_cards"] = 0
         output["team_red_cards"] = 0
         output["had_red_card"] = False
         return output
 
-    red_cards = (
-        appearances[TEAM_DISCIPLINE_COLUMNS]
+    card_columns = [column for column in ["yellow_cards", "red_cards"] if column in available_columns]
+    if not card_columns:
+        output["team_yellow_cards"] = 0
+        output["team_red_cards"] = 0
+        output["had_red_card"] = False
+        return output
+
+    aggregations = {f"team_{column}": (column, "sum") for column in card_columns}
+    cards = (
+        appearances[["game_id", "player_club_id"] + card_columns]
         .groupby(["game_id", "player_club_id"], as_index=False)
-        .agg(team_red_cards=("red_cards", "sum"))
+        .agg(**aggregations)
         .rename(columns={"player_club_id": "team_id"})
     )
-    output = matches.merge(red_cards, on=["game_id", "team_id"], how="left")
+    output = output.merge(cards, on=["game_id", "team_id"], how="left")
+    if "team_yellow_cards" not in output.columns:
+        output["team_yellow_cards"] = 0
+    if "team_red_cards" not in output.columns:
+        output["team_red_cards"] = 0
+    output["team_yellow_cards"] = output["team_yellow_cards"].fillna(0)
     output["team_red_cards"] = output["team_red_cards"].fillna(0)
     output["had_red_card"] = output["team_red_cards"] > 0
     return output
@@ -109,6 +124,8 @@ def summarize_team(matches: pd.DataFrame, team_id: int, last_n: int | None = Non
             "avg_goals_against": 0.0,
             "over_2_5_rate": 0.0,
             "btts_rate": 0.0,
+            "avg_yellow_cards": 0.0,
+            "avg_red_cards": 0.0,
             "recent_form": "",
         }
 
@@ -130,6 +147,8 @@ def summarize_team(matches: pd.DataFrame, team_id: int, last_n: int | None = Non
         "over_2_5_rate": round(float(team_matches["over_2_5"].mean()), 3),
         "btts_rate": round(float(team_matches["btts"].mean()), 3),
         "avg_total_goals": round(float(team_matches["total_goals"].mean()), 2),
+        "avg_yellow_cards": round(_safe_mean(team_matches, "team_yellow_cards"), 2),
+        "avg_red_cards": round(_safe_mean(team_matches, "team_red_cards"), 2),
         "recent_form": recent_form,
     }
 
@@ -210,6 +229,44 @@ def compare_teams(matches: pd.DataFrame, team_a_id: int, team_b_id: int, last_n:
     return pd.DataFrame(summaries)
 
 
+def summarize_head_to_head_by_team(matches: pd.DataFrame, team_a_id: int, team_b_id: int) -> pd.DataFrame:
+    direct = matches[
+        ((matches["team_id"] == team_a_id) & (matches["opponent_id"] == team_b_id))
+        | ((matches["team_id"] == team_b_id) & (matches["opponent_id"] == team_a_id))
+    ].copy()
+    direct = direct[
+        direct["goals_for"].notna()
+        & direct["goals_against"].notna()
+        & (direct["date"].isna() | (direct["date"] <= pd.Timestamp.today().normalize()))
+    ]
+    if direct.empty:
+        return pd.DataFrame(
+            columns=[
+                "team_id",
+                "team_name",
+                "played",
+                "wins",
+                "draws",
+                "losses",
+                "win_rate",
+                "avg_goals_for",
+                "avg_goals_against",
+                "over_2_5_rate",
+                "btts_rate",
+                "avg_yellow_cards",
+                "avg_red_cards",
+                "recent_form",
+            ]
+        )
+
+    return pd.DataFrame(
+        [
+            summarize_team(direct, team_a_id),
+            summarize_team(direct, team_b_id),
+        ]
+    )
+
+
 def monthly_team_performance(matches: pd.DataFrame, team_id: int) -> pd.DataFrame:
     team_matches = filter_team_matches(matches, team_id).copy()
     if team_matches.empty:
@@ -277,3 +334,9 @@ def league_competitiveness(matches: pd.DataFrame, competition_id: str | None = N
         "points_spread": round(points_spread, 2),
         "parity_index": round(parity_index, 3),
     }
+
+
+def _safe_mean(data: pd.DataFrame, column: str) -> float:
+    if column not in data.columns or data.empty:
+        return 0.0
+    return float(data[column].fillna(0).mean())
