@@ -13,3 +13,14 @@ data/processed/*
 !data/processed/.gitkeep
 data/marts/*
 !data/marts/.gitkeep
+
+# Artefactos locales de Airflow y Docker.
+logs/*
+!logs/.gitkeep
+.env
+data_external_mirror/
+
+# Artefactos de ingesta externa generados por API-Football.
+data/raw/api_football/*
+data/interim/quality_reports/*
+data/interim/request_logs/*

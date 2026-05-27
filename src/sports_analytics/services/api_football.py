@@ -20,6 +20,16 @@ class ApiFootballConfigError(ApiFootballError):
 
 
 @dataclass(frozen=True)
+class ApiFootballRawResponse:
+    payload: dict[str, Any]
+    endpoint: str
+    params: dict[str, Any]
+    status_code: int
+    remaining_requests: int | None
+    daily_limit: int | None
+
+
+@dataclass(frozen=True)
 class UpcomingFixture:
     fixture_id: int | None
     date: str
@@ -51,21 +61,55 @@ def fetch_upcoming_fixtures(
     api_key: str | None = None,
     timeout: int = 15,
 ) -> list[UpcomingFixture]:
+    raw_response = fetch_fixtures_payload(
+        next_count=next_count,
+        league_id=league_id,
+        season=season,
+        team_id=team_id,
+        timezone=timezone,
+        api_key=api_key,
+        timeout=timeout,
+    )
+    return parse_upcoming_fixtures(raw_response.payload, limit=next_count)
+
+
+def fetch_fixtures_payload(
+    *,
+    league_id: int | None = None,
+    season: int | None = None,
+    team_id: int | None = None,
+    next_count: int | None = None,
+    from_date: str | None = None,
+    to_date: str | None = None,
+    timezone: str = "America/Argentina/Buenos_Aires",
+    api_key: str | None = None,
+    timeout: int = 15,
+) -> ApiFootballRawResponse:
+    """Consulta /fixtures y devuelve el JSON crudo con metadatos de cuota.
+
+    La ingesta recomendada para el proyecto es por liga + temporada, porque
+    reduce requests frente a pedir un equipo por vez.
+    """
     resolved_key = api_key or get_api_football_key()
     if not resolved_key:
         env_names = ", ".join(API_KEY_ENV_VARS)
         raise ApiFootballConfigError(f"Falta configurar una API key en alguna de estas variables: {env_names}.")
 
     params: dict[str, Any] = {
-        "next": max(1, min(int(next_count), 20)),
         "timezone": timezone,
     }
+    if next_count is not None:
+        params["next"] = max(1, min(int(next_count), 100))
     if league_id is not None:
         params["league"] = int(league_id)
     if season is not None:
         params["season"] = int(season)
     if team_id is not None:
         params["team"] = int(team_id)
+    if from_date:
+        params["from"] = from_date
+    if to_date:
+        params["to"] = to_date
 
     try:
         response = requests.get(
@@ -85,11 +129,31 @@ def fetch_upcoming_fixtures(
     if errors:
         raise ApiFootballError(f"API-Football informo un error: {_format_api_errors(errors)}")
 
+    return ApiFootballRawResponse(
+        payload=payload,
+        endpoint="/fixtures",
+        params=params,
+        status_code=response.status_code,
+        remaining_requests=_first_int_header(
+            response.headers,
+            "x-ratelimit-requests-remaining",
+            "X-Ratelimit-Remaining",
+        ),
+        daily_limit=_first_int_header(
+            response.headers,
+            "x-ratelimit-requests-limit",
+            "X-Ratelimit-Limit",
+        ),
+    )
+
+
+def parse_upcoming_fixtures(payload: dict[str, Any], limit: int | None = None) -> list[UpcomingFixture]:
     fixtures = payload.get("response", [])
     if not isinstance(fixtures, list):
         raise ApiFootballError("API-Football devolvio un formato inesperado en el campo response.")
 
-    return [_parse_fixture(item) for item in fixtures[:next_count]]
+    selected = fixtures if limit is None else fixtures[:limit]
+    return [_parse_fixture(item) for item in selected]
 
 
 def _parse_fixture(item: dict[str, Any]) -> UpcomingFixture:
@@ -130,3 +194,15 @@ def _to_int_or_none(value: object) -> int | None:
         return int(value)
     except (TypeError, ValueError):
         return None
+
+
+def _first_int_header(headers: requests.structures.CaseInsensitiveDict[str], *names: str) -> int | None:
+    for name in names:
+        value = headers.get(name)
+        if value in (None, ""):
+            continue
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            continue
+    return None

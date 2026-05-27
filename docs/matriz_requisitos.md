@@ -25,6 +25,11 @@ Esta matriz vincula los requisitos del SRS/PGP con la implementacion actual. Cua
 | RF17 | Visualizar historial entre dos equipos | Implementado | Head-to-Head |
 | RF18 | Actualizar datos con nuevos archivos | Implementado base | Carga lateral de CSV y regeneracion de Parquet |
 | RF19 | Mensajes de error claros para usuarios no tecnicos | Implementado base | Mensajes en castellano en app y scripts |
+| RF20 | Ingerir fixtures futuros desde API-Football | Implementado base | `scripts/sync_api_football_fixtures.py`, `services/api_football.py`, DAG Airflow |
+| RF21 | Minimizar requests a API externa | Implementado base | Consulta por liga/temporada, cache Parquet, log de requests |
+| RF22 | Orquestar el pipeline ETL | Implementado base | `dags/football_analytics_pipeline.py` |
+| RF23 | Cargar datos procesados a un DWH | Implementado base | `db/init_dwh.sql`, `postgres-dwh`, tablas staging y marts |
+| RF24 | Respaldar artefactos en storage externo | Implementado base | `storage/external.py`, `scripts/upload_pipeline_artifacts.py` |
 
 ## Requisitos no funcionales
 
@@ -40,4 +45,6 @@ Esta matriz vincula los requisitos del SRS/PGP con la implementacion actual. Cua
 | RNF08 | Mostrar estadisticas historicas | Implementado | Filtros por temporada, mes, historial y tablas |
 | RNF09 | Adaptable a nuevas fuentes, ligas o temporadas | Implementado base | Catalogo de tablas, validacion y carga de nuevos CSV |
 | RNF10 | Mantenible | Implementado base | Separacion `etl`, `services`, `metrics`, `app`, `docs`, `tests` |
-
+| RNF11 | Credenciales fuera del codigo | Implementado base | Variables de entorno y Airflow Variables |
+| RNF12 | Pipeline observable | Implementado base | Logs de Airflow, reportes de calidad, `etl_request_log` |
+| RNF13 | Reejecucion controlada | Implementado base | UPSERT por `fixture_id` y marts reconstruibles |

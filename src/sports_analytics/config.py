@@ -9,3 +9,8 @@ PROCESSED_DIR = DATA_DIR / "processed"
 MARTS_DIR = DATA_DIR / "marts"
 PARQUET_DIR = PROCESSED_DIR / "parquet"
 
+API_FOOTBALL_RAW_DIR = RAW_DIR / "api_football"
+API_FOOTBALL_FIXTURES_RAW_DIR = API_FOOTBALL_RAW_DIR / "fixtures"
+API_FOOTBALL_PARQUET_DIR = PARQUET_DIR / "api_football_fixtures"
+QUALITY_REPORTS_DIR = INTERIM_DIR / "quality_reports"
+REQUEST_LOG_DIR = INTERIM_DIR / "request_logs"

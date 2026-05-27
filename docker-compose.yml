@@ -1,0 +1,158 @@
+services:
+  postgres-airflow:
+    image: postgres:15-alpine
+    container_name: sports-postgres-airflow
+    environment:
+      POSTGRES_USER: airflow
+      POSTGRES_PASSWORD: airflow
+      POSTGRES_DB: airflow
+    volumes:
+      - postgres_airflow_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U airflow"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - sports-network
+
+  postgres-dwh:
+    image: postgres:15-alpine
+    container_name: sports-postgres-dwh
+    environment:
+      POSTGRES_USER: dwh
+      POSTGRES_PASSWORD: dwh123
+      POSTGRES_DB: sports_dwh
+    volumes:
+      - postgres_dwh_data:/var/lib/postgresql/data
+      - ./db/init_dwh.sql:/docker-entrypoint-initdb.d/01_init_dwh.sql:ro
+    ports:
+      - "5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dwh -d sports_dwh"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - sports-network
+
+  airflow-init:
+    build:
+      context: .
+      dockerfile: Dockerfile.airflow
+    container_name: sports-airflow-init
+    command: >
+      bash -c "
+        airflow db migrate &&
+        airflow users create --username admin --password admin --firstname Admin --lastname Sports --role Admin --email admin@example.com || true
+      "
+    environment:
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres-airflow:5432/airflow
+      AIRFLOW__CORE__LOAD_EXAMPLES: "False"
+      AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "True"
+      AIRFLOW__WEBSERVER__SECRET_KEY: sports-analytics-local-secret
+    depends_on:
+      postgres-airflow:
+        condition: service_healthy
+    networks:
+      - sports-network
+
+  airflow-scheduler:
+    build:
+      context: .
+      dockerfile: Dockerfile.airflow
+    container_name: sports-airflow-scheduler
+    command: airflow scheduler
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1
+    environment:
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres-airflow:5432/airflow
+      AIRFLOW__CORE__LOAD_EXAMPLES: "False"
+      AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "True"
+      AIRFLOW__WEBSERVER__SECRET_KEY: sports-analytics-local-secret
+      AIRFLOW_CONN_POSTGRES_DWH: postgres://dwh:dwh123@postgres-dwh:5432/sports_dwh
+      API_FOOTBALL_LEAGUE_IDS: ${API_FOOTBALL_LEAGUE_IDS:-}
+      APIFOOTBALL_API_KEY: ${APIFOOTBALL_API_KEY:-}
+      API_FOOTBALL_LEAGUE_ID: ${API_FOOTBALL_LEAGUE_ID:-}
+      API_FOOTBALL_SEASON: ${API_FOOTBALL_SEASON:-}
+      API_FOOTBALL_NEXT_FIXTURES: ${API_FOOTBALL_NEXT_FIXTURES:-20}
+      PYTHONPATH: /opt/airflow/src
+    volumes:
+      - ./dags:/opt/airflow/dags
+      - ./logs:/opt/airflow/logs
+      - ./data:/opt/airflow/data
+      - ./src:/opt/airflow/src
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+      postgres-airflow:
+        condition: service_healthy
+      postgres-dwh:
+        condition: service_healthy
+    networks:
+      - sports-network
+
+  airflow-webserver:
+    build:
+      context: .
+      dockerfile: Dockerfile.airflow
+    container_name: sports-airflow-webserver
+    command: airflow webserver
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1
+    ports:
+      - "8080:8080"
+    environment:
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres-airflow:5432/airflow
+      AIRFLOW__CORE__LOAD_EXAMPLES: "False"
+      AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "True"
+      AIRFLOW__WEBSERVER__SECRET_KEY: sports-analytics-local-secret
+      AIRFLOW_CONN_POSTGRES_DWH: postgres://dwh:dwh123@postgres-dwh:5432/sports_dwh
+      API_FOOTBALL_LEAGUE_IDS: ${API_FOOTBALL_LEAGUE_IDS:-}
+      APIFOOTBALL_API_KEY: ${APIFOOTBALL_API_KEY:-}
+      API_FOOTBALL_LEAGUE_ID: ${API_FOOTBALL_LEAGUE_ID:-}
+      API_FOOTBALL_SEASON: ${API_FOOTBALL_SEASON:-}
+      API_FOOTBALL_NEXT_FIXTURES: ${API_FOOTBALL_NEXT_FIXTURES:-20}
+      PYTHONPATH: /opt/airflow/src
+    volumes:
+      - ./dags:/opt/airflow/dags
+      - ./logs:/opt/airflow/logs
+      - ./data:/opt/airflow/data
+      - ./src:/opt/airflow/src
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+      airflow-scheduler:
+        condition: service_started
+      postgres-airflow:
+        condition: service_healthy
+      postgres-dwh:
+        condition: service_healthy
+    networks:
+      - sports-network
+
+  metabase:
+    image: metabase/metabase:latest
+    container_name: sports-metabase
+    ports:
+      - "3000:3000"
+    environment:
+      MB_DB_FILE: /metabase-data/metabase.db
+    volumes:
+      - metabase_data:/metabase-data
+    networks:
+      - sports-network
+
+networks:
+  sports-network:
+    driver: bridge
+
+volumes:
+  postgres_airflow_data:
+  postgres_dwh_data:
+  metabase_data:

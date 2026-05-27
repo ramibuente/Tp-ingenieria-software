@@ -1,4 +1,4 @@
-# Diccionario de datos inicial
+# Diccionario de datos
 
 Datos detectados en `data/raw`.
 
@@ -32,3 +32,39 @@ Datos detectados en `data/raw`.
 4. `game_events`: permite tarjetas, goles, asistencias y eventos especiales.
 5. `game_lineups`: permite titularidad, suplencia y formaciones.
 
+## Fuente externa: API-Football fixtures
+
+Tabla procesada: `data/processed/parquet/api_football_fixtures/fixtures.parquet`.
+
+| Columna | Descripcion |
+|---|---|
+| `fixture_id` | Identificador unico del fixture en API-Football |
+| `fixture_date` | Fecha y hora del partido |
+| `fixture_timestamp` | Timestamp original de la API |
+| `timezone` | Zona horaria usada en la consulta |
+| `status_short` | Estado corto del partido |
+| `status_long` | Estado descriptivo del partido |
+| `league_id` | ID de liga en API-Football |
+| `league_name` | Nombre de liga |
+| `season` | Temporada consultada |
+| `round_name` | Ronda o fecha |
+| `home_team_id` | ID del equipo local en API-Football |
+| `home_team_name` | Nombre del equipo local |
+| `away_team_id` | ID del equipo visitante en API-Football |
+| `away_team_name` | Nombre del equipo visitante |
+| `venue_name` | Estadio |
+| `venue_city` | Ciudad del estadio |
+| `goals_home` | Goles local si el partido ya tiene resultado |
+| `goals_away` | Goles visitante si el partido ya tiene resultado |
+| `source_endpoint` | Endpoint consultado |
+| `source_params` | Parametros usados en la request |
+| `ingested_at` | Fecha de ingesta del pipeline |
+
+## Tablas DWH
+
+| Tabla | Uso |
+|---|---|
+| `stg_api_football_fixtures` | Staging normalizado de fixtures desde API-Football |
+| `etl_request_log` | Auditoria de requests, parametros, cuotas y raw path |
+| `mart_upcoming_fixtures` | Fixtures futuros listos para dashboard o Metabase |
+| `mart_fixture_quality_summary` | Resumen de calidad por corrida |

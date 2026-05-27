@@ -13,19 +13,30 @@ GENERIC_TEAM_TOKENS = {
     "ac",
     "afc",
     "as",
+    "asociacion",
+    "association",
+    "atletica",
+    "atletico",
     "ca",
     "cd",
     "cf",
     "club",
+    "central",
     "de",
+    "del",
     "fc",
     "fk",
     "if",
     "real",
+    "s",
     "sc",
     "sd",
     "sk",
     "the",
+}
+
+TOKEN_ALIASES = {
+    "jrs": "juniors",
 }
 
 
@@ -64,7 +75,7 @@ def find_best_team_match(
 
     best_match: TeamNameMatch | None = None
     for row in team_index.itertuples():
-        score = SequenceMatcher(None, normalized_external, row.normalized_name).ratio()
+        score = _name_similarity(normalized_external, row.normalized_name)
         if best_match is None or score > best_match.score:
             best_match = TeamNameMatch(team_id=int(row.team_id), team_name=str(row.team_name), score=round(score, 3))
 
@@ -82,5 +93,30 @@ def normalize_team_name(value: object) -> str:
         char for char in unicodedata.normalize("NFKD", text) if not unicodedata.combining(char)
     )
     text = re.sub(r"[^a-z0-9 ]+", " ", text)
-    tokens = [token for token in text.split() if token not in GENERIC_TEAM_TOKENS]
+    tokens = [_normalize_token(TOKEN_ALIASES.get(token, token)) for token in text.split()]
+    tokens = [token for token in tokens if token and token not in GENERIC_TEAM_TOKENS]
     return " ".join(tokens)
+
+
+def _normalize_token(token: str) -> str:
+    if len(token) > 4 and token.endswith("s"):
+        return token[:-1]
+    return token
+
+
+def _name_similarity(left: str, right: str) -> float:
+    sequence_score = SequenceMatcher(None, left, right).ratio()
+    left_tokens = set(left.split())
+    right_tokens = set(right.split())
+    if not left_tokens or not right_tokens:
+        return sequence_score
+
+    overlap = left_tokens & right_tokens
+    union = left_tokens | right_tokens
+    jaccard_score = len(overlap) / len(union)
+    containment_score = len(overlap) / min(len(left_tokens), len(right_tokens))
+
+    if containment_score == 1 and len(overlap) >= 1:
+        containment_score = max(containment_score, 0.86)
+
+    return max(sequence_score, jaccard_score, containment_score)

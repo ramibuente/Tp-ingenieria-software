@@ -13,10 +13,11 @@ SRC_DIR = PROJECT_ROOT / "src"
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
-from sports_analytics.config import RAW_DIR
+from sports_analytics.config import API_FOOTBALL_PARQUET_DIR, RAW_DIR
 from sports_analytics.data_catalog import TABLES
 from sports_analytics.etl.csv_to_parquet import convert_table_to_parquet
 from sports_analytics.etl.quality import build_quality_report
+from sports_analytics.ingestion.api_football_fixtures import load_processed_fixtures
 from sports_analytics.metrics.players import (
     PLAYER_APPEARANCE_COLUMNS,
     PLAYER_EVENT_COLUMNS,
@@ -135,6 +136,16 @@ def load_upcoming_fixtures_from_api(
         timezone=timezone,
         api_key=_api_key,
     )
+
+
+def api_fixtures_data_version() -> tuple[float, ...]:
+    parquet_file = API_FOOTBALL_PARQUET_DIR / "fixtures.parquet"
+    return (parquet_file.stat().st_mtime,) if parquet_file.exists() else ()
+
+
+@st.cache_data(show_spinner=False)
+def load_local_api_fixtures(_data_version: tuple[float, ...]) -> pd.DataFrame:
+    return load_processed_fixtures()
 
 
 def render_data_admin() -> None:
@@ -396,11 +407,131 @@ def render_h2h_overview(
         st.dataframe(h2h_display, hide_index=True, width="stretch")
 
 
-def render_api_football_oracle(games: pd.DataFrame) -> None:
-    st.subheader("Oraculo API-Football")
-    st.caption(
-        "Consulta los proximos 5 partidos y cruza cada cruce con el historial local cargado en el proyecto."
+def render_fixture_historical_context(
+    games: pd.DataFrame,
+    home_team: str,
+    away_team: str,
+    detail_parts: list[str],
+) -> None:
+    team_index = build_team_name_index(games)
+    home_match = find_best_team_match(home_team, team_index)
+    away_match = find_best_team_match(away_team, team_index)
+
+    with st.container(border=True):
+        st.markdown(f"**{home_team} vs {away_team}**")
+        if detail_parts:
+            st.caption(" | ".join(str(part) for part in detail_parts if part))
+
+        if home_match is None or away_match is None:
+            st.info("No se pudo vincular uno de los equipos de API-Football con los nombres del dataset local.")
+            return
+
+        if home_match.team_id == away_match.team_id:
+            st.info("Ambos nombres se vincularon al mismo equipo local; no se calcula Head-to-Head.")
+            return
+
+        summary = head_to_head_summary(games, home_match.team_id, away_match.team_id)
+        st.caption(
+            f"Coincidencias locales: {home_team} -> {home_match.team_name} "
+            f"({home_match.score:.2f}); {away_team} -> {away_match.team_name} ({away_match.score:.2f})."
+        )
+        render_h2h_summary_metrics(summary, home_team, away_team)
+
+        recent = head_to_head(games, home_match.team_id, away_match.team_id).head(5)
+        if recent.empty:
+            st.info("No hay enfrentamientos historicos cargados entre estos equipos.")
+        else:
+            st.dataframe(
+                recent[
+                    [
+                        "date",
+                        "season",
+                        "home_club_name",
+                        "home_club_goals",
+                        "away_club_goals",
+                        "away_club_name",
+                        "competition_id",
+                    ]
+                ],
+                hide_index=True,
+                width="stretch",
+            )
+
+
+def render_local_api_fixtures(games: pd.DataFrame) -> bool:
+    fixtures = load_local_api_fixtures(api_fixtures_data_version())
+    if fixtures.empty:
+        return False
+
+    fixtures = fixtures.copy()
+    fixtures["fixture_date"] = pd.to_datetime(fixtures["fixture_date"], errors="coerce", utc=True)
+    fixtures = fixtures.sort_values("fixture_date").head(10)
+    ingested_at = fixtures["ingested_at"].dropna().max() if "ingested_at" in fixtures.columns else None
+    if pd.notna(ingested_at):
+        st.caption(f"Fuente principal: Parquet local generado por Airflow/script. Ultima ingesta: {ingested_at}.")
+    else:
+        st.caption("Fuente principal: Parquet local generado por Airflow/script.")
+
+    display = fixtures[
+        [
+            "fixture_date",
+            "league_name",
+            "season",
+            "round_name",
+            "home_team_name",
+            "away_team_name",
+            "status_short",
+        ]
+    ].rename(
+        columns={
+            "fixture_date": "Fecha",
+            "league_name": "Liga",
+            "season": "Temporada",
+            "round_name": "Ronda",
+            "home_team_name": "Local",
+            "away_team_name": "Visitante",
+            "status_short": "Estado",
+        }
     )
+    st.dataframe(display, hide_index=True, width="stretch")
+
+    st.subheader("Cruce con historial local")
+    for row in fixtures.head(5).itertuples(index=False):
+        detail_parts = [
+            getattr(row, "fixture_date", ""),
+            getattr(row, "league_name", ""),
+            getattr(row, "round_name", ""),
+            getattr(row, "status_long", "") or getattr(row, "status_short", ""),
+        ]
+        render_fixture_historical_context(
+            games,
+            str(getattr(row, "home_team_name", "")),
+            str(getattr(row, "away_team_name", "")),
+            detail_parts,
+        )
+    return True
+
+
+def render_api_football_oracle(games: pd.DataFrame) -> None:
+    st.subheader("Fixtures API-Football")
+    st.caption(
+        "La fuente recomendada es la ingesta por liga/temporada del pipeline. La consulta manual queda solo como respaldo."
+    )
+
+    if render_local_api_fixtures(games):
+        with st.expander("Consulta manual a API-Football"):
+            render_manual_api_football_query(games)
+        return
+
+    st.info(
+        "Todavia no hay fixtures procesados. Ejecuten Airflow o "
+        "`PYTHONPATH=src python scripts/sync_api_football_fixtures.py --league ID --season ANIO`."
+    )
+    render_manual_api_football_query(games)
+
+
+def render_manual_api_football_query(games: pd.DataFrame) -> None:
+    st.caption("Modo respaldo: consulta directa con cache temporal de Streamlit.")
 
     configured_key = get_api_football_key()
     api_key_input = st.text_input(
@@ -450,51 +581,9 @@ def render_api_football_oracle(games: pd.DataFrame) -> None:
         st.warning("API-Football no devolvio partidos proximos para esos filtros.")
         return
 
-    team_index = build_team_name_index(games)
     for fixture in fixtures:
-        home_match = find_best_team_match(fixture.home_team, team_index)
-        away_match = find_best_team_match(fixture.away_team, team_index)
-
-        with st.container(border=True):
-            st.markdown(f"**{fixture.home_team} vs {fixture.away_team}**")
-            detail_parts = [part for part in [fixture.date, fixture.league_name, fixture.round_name, fixture.status] if part]
-            if detail_parts:
-                st.caption(" | ".join(detail_parts))
-
-            if home_match is None or away_match is None:
-                st.info("No se pudo vincular uno de los equipos de API-Football con los nombres del dataset local.")
-                continue
-
-            if home_match.team_id == away_match.team_id:
-                st.info("Ambos nombres se vincularon al mismo equipo local; no se calcula Head-to-Head.")
-                continue
-
-            summary = head_to_head_summary(games, home_match.team_id, away_match.team_id)
-            st.caption(
-                f"Coincidencias locales: {fixture.home_team} -> {home_match.team_name} "
-                f"({home_match.score:.2f}); {fixture.away_team} -> {away_match.team_name} ({away_match.score:.2f})."
-            )
-            render_h2h_summary_metrics(summary, fixture.home_team, fixture.away_team)
-
-            recent = head_to_head(games, home_match.team_id, away_match.team_id).head(5)
-            if recent.empty:
-                st.info("No hay enfrentamientos historicos cargados entre estos equipos.")
-            else:
-                st.dataframe(
-                    recent[
-                        [
-                            "date",
-                            "season",
-                            "home_club_name",
-                            "home_club_goals",
-                            "away_club_goals",
-                            "away_club_name",
-                            "competition_id",
-                        ]
-                    ],
-                    hide_index=True,
-                    width="stretch",
-                )
+        detail_parts = [part for part in [fixture.date, fixture.league_name, fixture.round_name, fixture.status] if part]
+        render_fixture_historical_context(games, fixture.home_team, fixture.away_team, detail_parts)
 
 
 def render_match_tab(games: pd.DataFrame) -> None:
