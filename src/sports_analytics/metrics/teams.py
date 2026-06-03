@@ -67,6 +67,12 @@ def build_team_match_view(games: pd.DataFrame) -> pd.DataFrame:
     matches["lost"] = matches["goals_for"] < matches["goals_against"]
     matches["btts"] = (matches["goals_for"] > 0) & (matches["goals_against"] > 0)
     matches["over_2_5"] = matches["total_goals"] > 2.5
+    today = pd.Timestamp.today().normalize()
+    matches["completed"] = (
+        matches["goals_for"].notna()
+        & matches["goals_against"].notna()
+        & (matches["date"].isna() | (matches["date"] <= today))
+    )
     return matches.sort_values("date")
 
 
@@ -106,6 +112,8 @@ def add_team_discipline(matches: pd.DataFrame, appearances: pd.DataFrame) -> pd.
 
 def filter_team_matches(matches: pd.DataFrame, team_id: int, last_n: int | None = None) -> pd.DataFrame:
     team_matches = matches[matches["team_id"] == team_id].sort_values("date")
+    if "completed" in team_matches.columns:
+        team_matches = team_matches[team_matches["completed"]]
     if last_n is not None:
         team_matches = team_matches.tail(last_n)
     return team_matches
@@ -317,6 +325,11 @@ def league_competitiveness(matches: pd.DataFrame, competition_id: str | None = N
     if season is not None:
         data = data[data["season"] == season]
 
+    if data.empty:
+        return {"teams": 0, "avg_points": 0.0, "points_std": 0.0, "points_spread": 0.0, "parity_index": 0.0}
+
+    if "completed" in data.columns:
+        data = data[data["completed"]].copy()
     if data.empty:
         return {"teams": 0, "avg_points": 0.0, "points_std": 0.0, "points_spread": 0.0, "parity_index": 0.0}
 

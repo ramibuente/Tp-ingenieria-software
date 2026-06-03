@@ -133,9 +133,9 @@ El archivo generado queda en `data/interim/api_football_league_mapping_template.
 
 ## Pestañas de la app
 
-- `Estadisticas de partidos proximos`: comparacion previa entre dos equipos con Win Rate, BTTS, Over 2.5, goles promedio, forma reciente, porcentajes Head-to-Head y fixtures futuros procesados por el pipeline de API-Football.
-- `Estadisticas de jugadores especificos`: busqueda de un jugador y resumen de partidos, goles, asistencias, tarjetas, minutos y rendimiento por 90 minutos.
-- `Estadisticas de arbitros`: analisis por arbitro con partidos dirigidos, goles promedio, tarjetas promedio y tendencia local/empate/visitante.
+- `Equipos`: comparacion manual entre dos equipos o seleccion de un partido proximo desde API-Football. Muestra Win Rate, BTTS, Over 2.5, goles promedio, forma reciente, Head-to-Head y evolucion mensual.
+- `Jugadores`: busqueda de un jugador y resumen de partidos, goles, asistencias, tarjetas, minutos y rendimiento por 90 minutos.
+- `Árbitros`: analisis por arbitro con partidos dirigidos, goles promedio, tarjetas promedio y tendencia local/empate/visitante.
 
 ## Calidad, limpieza y trazabilidad
 

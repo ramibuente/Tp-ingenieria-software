@@ -24,13 +24,16 @@ from sports_analytics.ingestion.api_football_fixtures import (  # noqa: E402
     build_fixture_quality_report,
     load_processed_fixtures,
     load_raw_fixture_payload,
+    normalize_fixture_events_payload,
     normalize_fixture_payload,
     save_quality_report,
+    save_raw_events_payload,
     save_raw_fixture_payload,
     utc_now_iso,
+    write_events_parquet,
     write_fixtures_parquet,
 )
-from sports_analytics.services.api_football import fetch_fixtures_payload  # noqa: E402
+from sports_analytics.services.api_football import fetch_fixture_events, fetch_fixtures_payload  # noqa: E402
 
 
 logger = logging.getLogger(__name__)
@@ -177,10 +180,12 @@ def _load_fixtures_to_dwh(**context) -> int:
                         fixture_id, fixture_date, fixture_timestamp, timezone, status_short, status_long,
                         league_id, league_name, season, round_name, home_team_id, home_team_name,
                         away_team_id, away_team_name, venue_name, venue_city, goals_home, goals_away,
+                        score_ht_home, score_ht_away, score_ft_home, score_ft_away,
                         source_endpoint, source_params, ingested_at
                     )
                     VALUES (
-                        %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s
+                        %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                        %s, %s, %s, %s, %s, %s::jsonb, %s
                     )
                     ON CONFLICT (fixture_id) DO UPDATE SET
                         fixture_date = EXCLUDED.fixture_date,
@@ -200,6 +205,10 @@ def _load_fixtures_to_dwh(**context) -> int:
                         venue_city = EXCLUDED.venue_city,
                         goals_home = EXCLUDED.goals_home,
                         goals_away = EXCLUDED.goals_away,
+                        score_ht_home = EXCLUDED.score_ht_home,
+                        score_ht_away = EXCLUDED.score_ht_away,
+                        score_ft_home = EXCLUDED.score_ft_home,
+                        score_ft_away = EXCLUDED.score_ft_away,
                         source_endpoint = EXCLUDED.source_endpoint,
                         source_params = EXCLUDED.source_params,
                         ingested_at = EXCLUDED.ingested_at,
@@ -224,6 +233,10 @@ def _load_fixtures_to_dwh(**context) -> int:
                         _none_if_na(row.get("venue_city")),
                         _none_if_na(row.get("goals_home")),
                         _none_if_na(row.get("goals_away")),
+                        _none_if_na(row.get("score_ht_home")),
+                        _none_if_na(row.get("score_ht_away")),
+                        _none_if_na(row.get("score_ft_home")),
+                        _none_if_na(row.get("score_ft_away")),
                         _none_if_na(row.get("source_endpoint")),
                         _none_if_na(row.get("source_params")) or "{}",
                         _none_if_na(row.get("ingested_at")),
@@ -254,6 +267,73 @@ def _build_fixture_marts(**context) -> None:
                 """
             )
     logger.info("Mart de proximos fixtures actualizado.")
+
+
+def _fetch_fixture_events(**context) -> int:
+    """Trae eventos (goles, tarjetas) de fixtures terminados en los últimos 7 días.
+
+    Limitado a MAX_EVENTS_FIXTURES requests para no superar el cupo diario del plan gratuito.
+    """
+    MAX_EVENTS_FIXTURES = 5
+    fixtures = load_processed_fixtures()
+    if fixtures.empty:
+        logger.info("No hay fixtures procesados para buscar eventos.")
+        return 0
+
+    finished = fixtures[fixtures["status_short"] == "FT"].copy()
+    if finished.empty:
+        logger.info("No hay fixtures finalizados.")
+        return 0
+
+    finished["fixture_date"] = pd.to_datetime(finished["fixture_date"], errors="coerce", utc=True)
+    cutoff = pd.Timestamp.now(tz="UTC") - pd.Timedelta(days=7)
+    recent = finished[finished["fixture_date"] >= cutoff].head(MAX_EVENTS_FIXTURES)
+
+    fetched = 0
+    for fixture_id in recent["fixture_id"].dropna().astype(int):
+        try:
+            response = fetch_fixture_events(fixture_id)
+            ingested_at = utc_now_iso()
+            save_raw_events_payload(fixture_id, response, ingested_at=ingested_at)
+            events = normalize_fixture_events_payload(fixture_id, response)
+            write_events_parquet(events, fixture_id)
+
+            if not events.empty:
+                with _get_dwh_connection() as conn:
+                    with conn.cursor() as cur:
+                        for row in events.to_dict(orient="records"):
+                            cur.execute(
+                                """
+                                INSERT INTO stg_api_football_fixture_events
+                                (fixture_id, elapsed, elapsed_extra, team_id, team_name,
+                                 player_id, player_name, assist_id, assist_name,
+                                 event_type, event_detail, ingested_at)
+                                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                                ON CONFLICT (fixture_id, elapsed, elapsed_extra, team_id, player_id, event_type, event_detail)
+                                DO UPDATE SET loaded_at = CURRENT_TIMESTAMP
+                                """,
+                                (
+                                    int(fixture_id),
+                                    _none_if_na(row.get("elapsed")),
+                                    _none_if_na(row.get("elapsed_extra")),
+                                    _none_if_na(row.get("team_id")),
+                                    _none_if_na(row.get("team_name")),
+                                    _none_if_na(row.get("player_id")),
+                                    _none_if_na(row.get("player_name")),
+                                    _none_if_na(row.get("assist_id")),
+                                    _none_if_na(row.get("assist_name")),
+                                    _none_if_na(row.get("event_type")),
+                                    _none_if_na(row.get("event_detail")),
+                                    _none_if_na(row.get("ingested_at")),
+                                ),
+                            )
+            fetched += 1
+            logger.info("Eventos de fixture %s cargados: %s eventos.", fixture_id, len(events))
+        except Exception as exc:
+            logger.warning("No se pudieron obtener eventos del fixture %s: %s", fixture_id, exc)
+
+    logger.info("Eventos descargados para %s fixtures.", fetched)
+    return fetched
 
 
 def _quality_check(**context) -> None:
@@ -360,6 +440,11 @@ with DAG(
         python_callable=_build_fixture_marts,
     )
 
+    fetch_fixture_events_task = PythonOperator(
+        task_id="fetch_fixture_events",
+        python_callable=_fetch_fixture_events,
+    )
+
     quality_check = PythonOperator(
         task_id="quality_check",
         python_callable=_quality_check,
@@ -367,4 +452,5 @@ with DAG(
 
     [validate_dwh, validate_config] >> fetch_api_football_fixtures
     fetch_api_football_fixtures >> validate_fixtures_schema >> normalize_fixtures_to_parquet
-    normalize_fixtures_to_parquet >> load_fixtures_to_dwh >> build_fixture_marts >> quality_check
+    normalize_fixtures_to_parquet >> load_fixtures_to_dwh >> build_fixture_marts
+    build_fixture_marts >> fetch_fixture_events_task >> quality_check

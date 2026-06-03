@@ -13,11 +13,10 @@ SRC_DIR = PROJECT_ROOT / "src"
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
-from sports_analytics.config import API_FOOTBALL_PARQUET_DIR, RAW_DIR
+from sports_analytics.config import RAW_DIR
 from sports_analytics.data_catalog import TABLES
 from sports_analytics.etl.csv_to_parquet import convert_table_to_parquet
 from sports_analytics.etl.quality import build_quality_report
-from sports_analytics.ingestion.api_football_fixtures import load_processed_fixtures
 from sports_analytics.metrics.players import (
     PLAYER_APPEARANCE_COLUMNS,
     PLAYER_EVENT_COLUMNS,
@@ -52,6 +51,7 @@ from sports_analytics.metrics.teams import (
 from sports_analytics.services.api_football import (
     ApiFootballConfigError,
     ApiFootballError,
+    UpcomingFixture,
     fetch_upcoming_fixtures,
     get_api_football_key,
 )
@@ -59,7 +59,160 @@ from sports_analytics.services.repository import data_version, load_table_column
 from sports_analytics.services.team_matching import build_team_name_index, find_best_team_match
 
 
-st.set_page_config(page_title="Analisis deportivo", layout="wide")
+st.set_page_config(page_title="BetStats — Analisis deportivo", layout="wide", page_icon="⚽")
+
+st.markdown("""
+<style>
+/* ── Fondo y tipografía general ── */
+[data-testid="stAppViewContainer"] { background-color: #111314; }
+[data-testid="stSidebar"] { background-color: #181b1f; }
+
+/* ── Cards de partido ── */
+.intro-panel {
+    background: #171c20;
+    border: 1px solid #2c333a;
+    border-radius: 8px;
+    padding: 18px 22px;
+    margin: 12px 0 18px 0;
+}
+
+.intro-title {
+    color: #f1f5f9;
+    font-size: 20px;
+    font-weight: 800;
+    margin-bottom: 6px;
+}
+
+.intro-copy {
+    color: #cbd5e1;
+    font-size: 14px;
+    line-height: 1.5;
+}
+
+.guide-row {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 10px;
+    margin: 12px 0 18px 0;
+}
+
+.guide-step {
+    background: #171c20;
+    border: 1px solid #2c333a;
+    border-radius: 8px;
+    padding: 12px 14px;
+    color: #cbd5e1;
+    font-size: 13px;
+}
+
+.guide-step strong {
+    color: #49c38f;
+    display: block;
+    margin-bottom: 4px;
+}
+
+.match-card {
+    background: #171c20;
+    border: 1px solid #2c333a;
+    border-radius: 8px;
+    padding: 20px 24px;
+    margin-bottom: 16px;
+    transition: border-color 0.2s;
+}
+.match-card:hover { border-color: #49c38f; }
+
+.match-header {
+    font-size: 11px;
+    color: #6b7280;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-bottom: 10px;
+}
+
+.match-teams {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 14px;
+}
+
+.team-name {
+    font-size: 18px;
+    font-weight: 700;
+    color: #f1f5f9;
+    flex: 1;
+}
+
+.team-name.away { text-align: right; }
+
+.vs-badge {
+    background: #263038;
+    color: #cbd5e1;
+    font-size: 12px;
+    font-weight: 600;
+    padding: 4px 12px;
+    border-radius: 20px;
+    margin: 0 16px;
+}
+
+/* ── KPI badges ── */
+.kpi-row {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-top: 8px;
+}
+
+.kpi-badge {
+    padding: 4px 10px;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.kpi-green  { background: #0d2b1a; color: #34d399; border: 1px solid #065f46; }
+.kpi-red    { background: #2b0d0d; color: #f87171; border: 1px solid #7f1d1d; }
+.kpi-yellow { background: #2b250d; color: #fbbf24; border: 1px solid #78350f; }
+.kpi-blue   { background: #0b2530; color: #67e8f9; border: 1px solid #155e75; }
+.kpi-gray   { background: #202429; color: #cbd5e1; border: 1px solid #3b424a; }
+
+/* ── Disclaimer ── */
+.disclaimer {
+    background: #1c1a0d;
+    border: 1px solid #78350f;
+    border-left: 4px solid #f59e0b;
+    border-radius: 6px;
+    padding: 10px 16px;
+    color: #fbbf24;
+    font-size: 13px;
+    margin-bottom: 20px;
+}
+
+/* ── Section headers ── */
+.section-title {
+    font-size: 13px;
+    font-weight: 700;
+    color: #49c38f;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    margin-bottom: 4px;
+    border-bottom: 1px solid #254437;
+    padding-bottom: 6px;
+}
+
+/* ── Métricas ── */
+[data-testid="metric-container"] {
+    background: #171c20;
+    border: 1px solid #2c333a;
+    border-radius: 8px;
+    padding: 12px 16px;
+}
+
+@media (max-width: 900px) {
+    .guide-row { grid-template-columns: 1fr; }
+}
+</style>
+""", unsafe_allow_html=True)
 
 
 @st.cache_data(show_spinner=False)
@@ -137,22 +290,102 @@ def load_upcoming_fixtures_from_api(
         api_key=_api_key,
     )
 
+def render_disclaimer() -> None:
+    st.markdown(
+        '<div class="disclaimer">⚠️ <strong>Solo análisis orientativo.</strong> '
+        'Las estadísticas no garantizan resultados. No constituyen asesoramiento de apuestas.</div>',
+        unsafe_allow_html=True,
+    )
 
-def api_fixtures_data_version() -> tuple[float, ...]:
-    parquet_file = API_FOOTBALL_PARQUET_DIR / "fixtures.parquet"
-    return (parquet_file.stat().st_mtime,) if parquet_file.exists() else ()
+
+def render_intro_panel(title: str, copy: str) -> None:
+    st.markdown(
+        f"""
+        <div class="intro-panel">
+            <div class="intro-title">{title}</div>
+            <div class="intro-copy">{copy}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
 
-@st.cache_data(show_spinner=False)
-def load_local_api_fixtures(_data_version: tuple[float, ...]) -> pd.DataFrame:
-    return load_processed_fixtures()
+def render_guide_steps(steps: list[tuple[str, str]]) -> None:
+    step_html = "".join(
+        f'<div class="guide-step"><strong>{title}</strong>{body}</div>'
+        for title, body in steps
+    )
+    st.markdown(f'<div class="guide-row">{step_html}</div>', unsafe_allow_html=True)
+
+
+def kpi_badge(label: str, value: str, color: str = "gray") -> str:
+    return f'<span class="kpi-badge kpi-{color}">{label}: <strong>{value}</strong></span>'
+
+
+def render_fixture_card(
+    home: str,
+    away: str,
+    league: str,
+    date: str,
+    round_name: str,
+    status: str,
+    home_stats: dict | None = None,
+    away_stats: dict | None = None,
+    score_ft: str | None = None,
+) -> None:
+    normalized_status = status.strip().upper()
+    finished = normalized_status in ("FT", "AET", "PEN", "MATCH FINISHED")
+    scheduled = normalized_status in ("NS", "TBD", "NOT STARTED", "TIME TO BE DEFINED", "")
+    score_html = f'<span class="vs-badge">{score_ft}</span>' if (finished and score_ft) else '<span class="vs-badge">VS</span>'
+
+    home_badges = ""
+    away_badges = ""
+    if home_stats and away_stats:
+        def wr_color(v): return "green" if v >= 0.5 else ("yellow" if v >= 0.35 else "red")
+        home_badges = "".join([
+            kpi_badge("WR", f"{home_stats.get('win_rate', 0)*100:.0f}%", wr_color(home_stats.get('win_rate', 0))),
+            kpi_badge("BTTS", f"{home_stats.get('btts_rate', 0)*100:.0f}%", "blue"),
+            kpi_badge("O2.5", f"{home_stats.get('over_2_5_rate', 0)*100:.0f}%", "blue"),
+            kpi_badge("Forma", str(home_stats.get('recent_form', '')), "gray"),
+        ])
+        away_badges = "".join([
+            kpi_badge("WR", f"{away_stats.get('win_rate', 0)*100:.0f}%", wr_color(away_stats.get('win_rate', 0))),
+            kpi_badge("BTTS", f"{away_stats.get('btts_rate', 0)*100:.0f}%", "blue"),
+            kpi_badge("O2.5", f"{away_stats.get('over_2_5_rate', 0)*100:.0f}%", "blue"),
+            kpi_badge("Forma", str(away_stats.get('recent_form', '')), "gray"),
+        ])
+
+    if finished:
+        status_html = '<span style="color:#34d399;">Finalizado</span>'
+    elif scheduled:
+        status_html = f'<span style="color:#cbd5e1;">{status or "Programado"}</span>'
+    else:
+        status_html = f'<span style="color:#f87171;font-weight:700;">{status}</span>'
+
+    st.markdown(f"""
+    <div class="match-card">
+        <div class="match-header">
+            {league} &nbsp;·&nbsp; {round_name} &nbsp;·&nbsp; {date} &nbsp;·&nbsp; {status_html}
+        </div>
+        <div class="match-teams">
+            <div class="team-name">{home}</div>
+            {score_html}
+            <div class="team-name away">{away}</div>
+        </div>
+        <div style="display:flex; justify-content:space-between; gap:8px;">
+            <div class="kpi-row">{home_badges}</div>
+            <div class="kpi-row" style="justify-content:flex-end;">{away_badges}</div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
 
 
 def render_data_admin() -> None:
-    with st.sidebar.expander("Carga y calidad de datos"):
-        table_name = st.selectbox("Tabla a revisar o actualizar", list(TABLES.keys()))
+    with st.sidebar.expander("Administración de datos"):
+        st.caption("Usá esta sección solo si necesitás cargar CSV nuevos o revisar calidad.")
+        table_name = st.selectbox("Tabla", list(TABLES.keys()))
         spec = TABLES[table_name]
-        uploaded = st.file_uploader("Cargar CSV actualizado", type="csv")
+        uploaded = st.file_uploader("Subir CSV actualizado", type="csv")
 
         if uploaded is not None:
             raw_bytes = uploaded.getvalue()
@@ -167,7 +400,7 @@ def render_data_admin() -> None:
                 st.error(f"El archivo no tiene la estructura esperada. Faltan columnas: {missing}")
             else:
                 st.success("El archivo tiene las columnas esperadas.")
-                if st.button("Guardar CSV y regenerar Parquet"):
+                if st.button("Actualizar datos"):
                     try:
                         RAW_DIR.mkdir(parents=True, exist_ok=True)
                         (RAW_DIR / spec.file_name).write_bytes(raw_bytes)
@@ -177,7 +410,7 @@ def render_data_admin() -> None:
                     except Exception as exc:
                         st.error(f"No se pudo actualizar la tabla. Detalle: {exc}")
 
-        if st.button("Ver reporte de calidad"):
+        if st.button("Revisar calidad"):
             try:
                 sample = pd.read_csv(RAW_DIR / spec.file_name, nrows=50_000, low_memory=False)
                 report = build_quality_report(table_name, sample)
@@ -230,8 +463,13 @@ def safe_render(render_function, *args) -> None:
         st.error(f"No se pudo mostrar esta sección. Detalle: {exc}")
 
 
-def optional_int_filter(label: str, help_text: str = "") -> tuple[int | None, bool]:
-    raw_value = st.text_input(label, help=help_text)
+def optional_int_filter(
+    label: str,
+    help_text: str = "",
+    key: str | None = None,
+    value: str = "",
+) -> tuple[int | None, bool]:
+    raw_value = st.text_input(label, value=value, help=help_text, key=key)
     if not raw_value.strip():
         return None, True
 
@@ -240,6 +478,13 @@ def optional_int_filter(label: str, help_text: str = "") -> tuple[int | None, bo
     except ValueError:
         st.warning(f"{label} debe ser un numero entero.")
         return None, False
+
+
+def format_fixture_datetime(value: object) -> str:
+    parsed = pd.to_datetime(value, errors="coerce", utc=True)
+    if pd.isna(parsed):
+        return str(value or "")
+    return parsed.tz_convert("America/Argentina/Buenos_Aires").strftime("%d/%m/%Y %H:%M")
 
 
 def render_h2h_summary_metrics(summary: dict[str, object], team_a_name: str, team_b_name: str) -> None:
@@ -252,6 +497,76 @@ def render_h2h_summary_metrics(summary: dict[str, object], team_a_name: str, tea
 
 def percent_label(value: object) -> str:
     return f"{float(value) * 100:.1f}%"
+
+
+def format_display_date(value: object) -> str:
+    parsed = pd.to_datetime(value, errors="coerce")
+    if pd.isna(parsed):
+        return str(value or "")
+    return parsed.strftime("%d/%m/%Y")
+
+
+def render_team_insight_text(
+    comparison: pd.DataFrame,
+    h2h_summary: dict[str, object],
+    team_a_name: str,
+    team_b_name: str,
+    last_n: int,
+) -> None:
+    if comparison.empty or len(comparison) < 2:
+        return
+
+    team_a = comparison.iloc[0]
+    team_b = comparison.iloc[1]
+    team_a_wr = float(team_a["win_rate"])
+    team_b_wr = float(team_b["win_rate"])
+    team_a_goals = float(team_a["avg_goals_for"])
+    team_b_goals = float(team_b["avg_goals_for"])
+    team_a_conceded = float(team_a["avg_goals_against"])
+    team_b_conceded = float(team_b["avg_goals_against"])
+    btts_avg = (float(team_a["btts_rate"]) + float(team_b["btts_rate"])) / 2
+    over_avg = (float(team_a["over_2_5_rate"]) + float(team_b["over_2_5_rate"])) / 2
+
+    if abs(team_a_wr - team_b_wr) >= 0.15:
+        better_team = team_a_name if team_a_wr > team_b_wr else team_b_name
+        result_note = f"{better_team} llega con mejor porcentaje de victorias recientes."
+    else:
+        result_note = "El rendimiento reciente de ambos equipos es parejo."
+
+    if over_avg >= 0.55:
+        goals_note = "El cruce tiene tendencia a partidos con varios goles."
+    elif over_avg <= 0.35:
+        goals_note = "Los datos recientes sugieren partidos de marcador más bajo."
+    else:
+        goals_note = "La tendencia de goles es intermedia, sin una señal fuerte hacia partido abierto o cerrado."
+
+    if btts_avg >= 0.55:
+        btts_note = "También aparece una señal relativamente alta de que ambos equipos conviertan."
+    elif btts_avg <= 0.35:
+        btts_note = "La frecuencia de ambos equipos convirtiendo es baja en los partidos recientes."
+    else:
+        btts_note = "La métrica BTTS no marca una tendencia clara."
+
+    h2h_played = int(h2h_summary["played"])
+    if h2h_played:
+        h2h_note = (
+            f"En el historial directo cargado hay {h2h_played} enfrentamiento(s): "
+            f"{team_a_name} ganó {int(h2h_summary['team_a_wins'])}, "
+            f"empataron {int(h2h_summary['draws'])} y "
+            f"{team_b_name} ganó {int(h2h_summary['team_b_wins'])}."
+        )
+    else:
+        h2h_note = (
+            "No hay enfrentamientos directos cargados entre estos dos equipos. "
+            "Eso no significa que nunca hayan jugado: solo indica que ese cruce no aparece en el dataset local."
+        )
+
+    st.info(
+        f"Lectura rápida: se comparan los últimos {last_n} partidos disponibles de cada equipo. "
+        f"{result_note} {team_a_name} promedia {team_a_goals:.2f} goles a favor y {team_a_conceded:.2f} en contra; "
+        f"{team_b_name} promedia {team_b_goals:.2f} a favor y {team_b_conceded:.2f} en contra. "
+        f"{goals_note} {btts_note} {h2h_note}"
+    )
 
 
 def render_metric_glossary() -> None:
@@ -316,8 +631,8 @@ def render_h2h_overview(
     team_a_name: str,
     team_b_name: str,
 ) -> None:
-    st.subheader("Enfrentamientos directos")
-    st.caption("Estos numeros usan solo partidos historicos entre los dos equipos seleccionados.")
+    st.subheader("Historial directo entre equipos")
+    st.caption("Estos numeros usan solo los partidos historicos jugados entre los dos equipos seleccionados.")
     render_h2h_summary_metrics(h2h_summary, team_a_name, team_b_name)
 
     outcome_data = pd.DataFrame(
@@ -328,20 +643,28 @@ def render_h2h_overview(
                 int(h2h_summary["draws"]),
                 int(h2h_summary["team_b_wins"]),
             ],
+            "Porcentaje": [
+                float(h2h_summary["team_a_win_rate"]),
+                float(h2h_summary["draw_rate"]),
+                float(h2h_summary["team_b_win_rate"]),
+            ],
         }
     )
     chart_columns = st.columns([1, 1])
     with chart_columns[0]:
-        st.plotly_chart(
-            px.bar(
-                outcome_data,
-                x="Resultado",
-                y="Partidos",
-                text="Partidos",
-                title="Resultados historicos",
-            ),
-            width="stretch",
-        )
+        if int(h2h_summary["played"]) > 0:
+            st.plotly_chart(
+                px.pie(
+                    outcome_data,
+                    names="Resultado",
+                    values="Partidos",
+                    hole=0.45,
+                    title="Reparto del historial",
+                ),
+                width="stretch",
+            )
+        else:
+            st.info("No hay historial directo cargado para graficar.")
 
     if not h2h_by_team.empty:
         h2h_display = h2h_by_team[
@@ -404,285 +727,273 @@ def render_h2h_overview(
                 ),
                 width="stretch",
             )
-        st.dataframe(h2h_display, hide_index=True, width="stretch")
+        outcome_display = outcome_data.copy()
+        outcome_display["Porcentaje"] = outcome_display["Porcentaje"].map(percent_label)
+        with st.expander("Ver datos del historial directo"):
+            st.dataframe(outcome_display, hide_index=True, width="stretch")
+            st.dataframe(h2h_display, hide_index=True, width="stretch")
 
 
-def render_fixture_historical_context(
+def render_selected_fixture_analysis(
     games: pd.DataFrame,
-    home_team: str,
-    away_team: str,
-    detail_parts: list[str],
+    selected: dict[str, object],
+    *,
+    widget_key_prefix: str,
 ) -> None:
+    home_name = str(selected["home"])
+    away_name = str(selected["away"])
+
+    render_fixture_card(
+        home=home_name,
+        away=away_name,
+        league=str(selected.get("league", "")),
+        date=str(selected.get("date_str", "")),
+        round_name=str(selected.get("round_name", "")),
+        status=str(selected.get("status", "")),
+    )
+
     team_index = build_team_name_index(games)
-    home_match = find_best_team_match(home_team, team_index)
-    away_match = find_best_team_match(away_team, team_index)
+    home_match = find_best_team_match(home_name, team_index)
+    away_match = find_best_team_match(away_name, team_index)
 
-    with st.container(border=True):
-        st.markdown(f"**{home_team} vs {away_team}**")
-        if detail_parts:
-            st.caption(" | ".join(str(part) for part in detail_parts if part))
-
-        if home_match is None or away_match is None:
-            st.info("No se pudo vincular uno de los equipos de API-Football con los nombres del dataset local.")
-            return
-
-        if home_match.team_id == away_match.team_id:
-            st.info("Ambos nombres se vincularon al mismo equipo local; no se calcula Head-to-Head.")
-            return
-
-        summary = head_to_head_summary(games, home_match.team_id, away_match.team_id)
-        st.caption(
-            f"Coincidencias locales: {home_team} -> {home_match.team_name} "
-            f"({home_match.score:.2f}); {away_team} -> {away_match.team_name} ({away_match.score:.2f})."
-        )
-        render_h2h_summary_metrics(summary, home_team, away_team)
-
-        recent = head_to_head(games, home_match.team_id, away_match.team_id).head(5)
-        if recent.empty:
-            st.info("No hay enfrentamientos historicos cargados entre estos equipos.")
-        else:
-            st.dataframe(
-                recent[
-                    [
-                        "date",
-                        "season",
-                        "home_club_name",
-                        "home_club_goals",
-                        "away_club_goals",
-                        "away_club_name",
-                        "competition_id",
-                    ]
-                ],
-                hide_index=True,
-                width="stretch",
-            )
-
-
-def render_local_api_fixtures(games: pd.DataFrame) -> bool:
-    fixtures = load_local_api_fixtures(api_fixtures_data_version())
-    if fixtures.empty:
-        return False
-
-    fixtures = fixtures.copy()
-    fixtures["fixture_date"] = pd.to_datetime(fixtures["fixture_date"], errors="coerce", utc=True)
-    fixtures = fixtures.sort_values("fixture_date").head(10)
-    ingested_at = fixtures["ingested_at"].dropna().max() if "ingested_at" in fixtures.columns else None
-    if pd.notna(ingested_at):
-        st.caption(f"Fuente principal: Parquet local generado por Airflow/script. Ultima ingesta: {ingested_at}.")
-    else:
-        st.caption("Fuente principal: Parquet local generado por Airflow/script.")
-
-    display = fixtures[
-        [
-            "fixture_date",
-            "league_name",
-            "season",
-            "round_name",
-            "home_team_name",
-            "away_team_name",
-            "status_short",
-        ]
-    ].rename(
-        columns={
-            "fixture_date": "Fecha",
-            "league_name": "Liga",
-            "season": "Temporada",
-            "round_name": "Ronda",
-            "home_team_name": "Local",
-            "away_team_name": "Visitante",
-            "status_short": "Estado",
-        }
-    )
-    st.dataframe(display, hide_index=True, width="stretch")
-
-    st.subheader("Cruce con historial local")
-    for row in fixtures.head(5).itertuples(index=False):
-        detail_parts = [
-            getattr(row, "fixture_date", ""),
-            getattr(row, "league_name", ""),
-            getattr(row, "round_name", ""),
-            getattr(row, "status_long", "") or getattr(row, "status_short", ""),
-        ]
-        render_fixture_historical_context(
-            games,
-            str(getattr(row, "home_team_name", "")),
-            str(getattr(row, "away_team_name", "")),
-            detail_parts,
-        )
-    return True
-
-
-def render_api_football_oracle(games: pd.DataFrame) -> None:
-    st.subheader("Fixtures API-Football")
-    st.caption(
-        "La fuente recomendada es la ingesta por liga/temporada del pipeline. La consulta manual queda solo como respaldo."
-    )
-
-    if render_local_api_fixtures(games):
-        with st.expander("Consulta manual a API-Football"):
-            render_manual_api_football_query(games)
+    if home_match is None or away_match is None:
+        st.warning("No se pudo vincular uno o ambos equipos con el dataset histórico de Transfermarkt.")
         return
 
-    st.info(
-        "Todavia no hay fixtures procesados. Ejecuten Airflow o "
-        "`PYTHONPATH=src python scripts/sync_api_football_fixtures.py --league ID --season ANIO`."
+    if home_match.team_id == away_match.team_id:
+        st.warning("Ambos equipos se mapearon al mismo registro histórico.")
+        return
+
+    with st.expander("Coincidencia con datos históricos"):
+        st.write(
+            f"{home_name} -> {home_match.team_name} ({home_match.score:.2f}) | "
+            f"{away_name} -> {away_match.team_name} ({away_match.score:.2f})"
+        )
+
+    render_team_comparison_content(
+        games=games,
+        team_a_id=home_match.team_id,
+        team_b_id=away_match.team_id,
+        team_a_name=home_match.team_name,
+        team_b_name=away_match.team_name,
+        widget_key_prefix=widget_key_prefix,
     )
-    render_manual_api_football_query(games)
 
 
-def render_manual_api_football_query(games: pd.DataFrame) -> None:
-    st.caption("Modo respaldo: consulta directa con cache temporal de Streamlit.")
+def api_fixture_rows(fixtures: list[UpcomingFixture]) -> list[dict[str, object]]:
+    rows: list[dict[str, object]] = []
+    for fixture in fixtures:
+        date_str = format_fixture_datetime(fixture.date)
+        label = f"{fixture.league_name}  ·  {date_str}  ·  {fixture.home_team} vs {fixture.away_team}"
+        rows.append(
+            {
+                "label": label,
+                "home": fixture.home_team,
+                "away": fixture.away_team,
+                "league": fixture.league_name,
+                "round_name": fixture.round_name,
+                "date_str": date_str,
+                "status": fixture.status,
+            }
+        )
+    return rows
+
+
+API_FOOTBALL_LEAGUE_PRESETS = {
+    "Personalizado": {"league_id": "", "season": ""},
+    "Argentina - Liga Profesional": {"league_id": "128", "season": "2026"},
+    "España - LaLiga": {"league_id": "140", "season": "2025"},
+    "Inglaterra - Premier League": {"league_id": "39", "season": "2025"},
+}
+
+
+TEAM_COMPARISON_PRESETS = {
+    "Elegir manualmente": None,
+    "Barcelona vs Real Madrid": ("Futbol Club Barcelona", "Real Madrid Club de Fútbol"),
+    "Atlético Madrid vs Real Madrid": ("Club Atlético de Madrid S.A.D.", "Real Madrid Club de Fútbol"),
+    "Dortmund vs Bayern": ("Borussia Dortmund", "FC Bayern München"),
+    "Milan vs Inter": ("Associazione Calcio Milan", "Football Club Internazionale Milano S.p.A."),
+    "Aberdeen vs Celtic": ("Aberdeen Football Club", "The Celtic Football Club"),
+}
+
+
+def render_api_fixture_selector(games: pd.DataFrame) -> None:
+    render_guide_steps(
+        [
+            ("Elegí una liga", "Usá una de las opciones frecuentes. No necesitás saber el ID."),
+            ("Buscá partidos", "La app trae próximos partidos reales de esa liga."),
+            ("Seleccioná uno", "Después muestra el mismo análisis histórico que la comparación manual."),
+        ]
+    )
 
     configured_key = get_api_football_key()
-    api_key_input = st.text_input(
-        "API key API-Football",
-        type="password",
-        help="Tambien se puede configurar como APIFOOTBALL_API_KEY, API_FOOTBALL_KEY o APISPORTS_KEY.",
-    )
-    api_key = api_key_input.strip() or configured_key
+    if configured_key:
+        api_key = configured_key
+        st.caption("La conexión con partidos próximos ya está configurada para esta app.")
+    else:
+        with st.expander("Clave de acceso para partidos próximos", expanded=True):
+            st.markdown(
+                """
+La app necesita una clave de API-Football para consultar partidos reales en internet.
+En una versión publicada, esta clave debería estar configurada por el equipo del proyecto y no debería pedirse a cada usuario.
 
-    api_filters = st.columns([1, 1, 1])
-    with api_filters[0]:
-        league_id, league_ok = optional_int_filter("League ID API-Football")
-    with api_filters[1]:
-        season, season_ok = optional_int_filter("Season API-Football")
-    with api_filters[2]:
-        api_team_id, team_ok = optional_int_filter("Team ID API-Football")
+Este campo aparece solo porque no se detectó una clave configurada en el entorno local.
+                """
+            )
+            api_key_input = st.text_input(
+                "Clave de API-Football",
+                type="password",
+                key="upcoming_api_key",
+                help="Para desarrollo local. En producción conviene configurar APIFOOTBALL_API_KEY en el servidor.",
+            )
+        api_key = api_key_input.strip()
+
+    search_cols = st.columns([2, 1])
+    with search_cols[0]:
+        preset_name = st.selectbox("Liga", list(API_FOOTBALL_LEAGUE_PRESETS.keys())[1:] + ["Personalizado"])
+    with search_cols[1]:
+        next_count = st.slider("Cantidad", min_value=5, max_value=30, value=10, step=5)
+    preset = API_FOOTBALL_LEAGUE_PRESETS[preset_name]
+
+    with st.expander("Ajustes avanzados"):
+        st.caption("Solo cambiá estos campos si conocés los IDs de API-Football.")
+        controls = st.columns([1, 1, 1])
+        with controls[0]:
+            league_id, league_ok = optional_int_filter(
+                "ID de liga",
+                key=f"upcoming_league_id_{preset_name}",
+                value=preset["league_id"],
+                help_text="Ejemplo: Argentina 128, LaLiga 140, Premier League 39.",
+            )
+        with controls[1]:
+            season, season_ok = optional_int_filter(
+                "Temporada",
+                key=f"upcoming_season_{preset_name}",
+                value=preset["season"],
+                help_text="Ejemplo: 2026 para Argentina; 2025 para ligas europeas 2025/26.",
+            )
+        with controls[2]:
+            api_team_id, team_ok = optional_int_filter(
+                "ID de equipo",
+                key="upcoming_team_id",
+                help_text="Opcional. Si queda vacío, se buscan partidos de toda la liga.",
+            )
 
     if not api_key:
-        st.info(
-            "Para activar el oraculo, pegá una API key de API-Football o configurá APIFOOTBALL_API_KEY en el entorno."
-        )
+        st.info("Falta configurar la clave de API-Football para buscar partidos próximos.")
         return
 
     if not (league_ok and season_ok and team_ok):
         return
 
-    key_marker = f"{len(api_key)}:{api_key[-4:]}"
-    try:
-        with st.spinner("Consultando proximos partidos en API-Football..."):
-            fixtures = load_upcoming_fixtures_from_api(
-                5,
-                league_id,
-                season,
-                api_team_id,
-                "America/Argentina/Buenos_Aires",
-                key_marker,
-                _api_key=api_key,
-            )
-    except ApiFootballConfigError as exc:
-        st.info(str(exc))
-        return
-    except ApiFootballError as exc:
-        st.error(f"No se pudo consultar API-Football. {exc}")
+    if "upcoming_api_fixtures" not in st.session_state:
+        st.session_state.upcoming_api_fixtures = None
+        st.session_state.upcoming_api_query = None
+
+    current_query = (next_count, league_id, season, api_team_id)
+    if st.session_state.upcoming_api_query not in (None, current_query):
+        st.session_state.upcoming_api_fixtures = None
+        st.session_state.upcoming_api_query = None
+
+    if st.button("Buscar próximos partidos", type="primary"):
+        key_marker = f"{len(api_key)}:{api_key[-4:]}"
+        try:
+            with st.spinner("Buscando partidos próximos..."):
+                fixtures = load_upcoming_fixtures_from_api(
+                    next_count,
+                    league_id,
+                    season,
+                    api_team_id,
+                    "America/Argentina/Buenos_Aires",
+                    key_marker,
+                    _api_key=api_key,
+                )
+            st.session_state.upcoming_api_fixtures = fixtures
+            st.session_state.upcoming_api_query = current_query
+        except ApiFootballConfigError as exc:
+            st.info(str(exc))
+            return
+        except ApiFootballError as exc:
+            st.error(f"No se pudo consultar API-Football. {exc}")
+            return
+
+    fixtures: list[UpcomingFixture] | None = st.session_state.upcoming_api_fixtures
+
+    if fixtures is None:
         return
 
     if not fixtures:
-        st.warning("API-Football no devolvio partidos proximos para esos filtros.")
+        st.warning("No se encontraron partidos próximos para esos filtros.")
         return
 
-    for fixture in fixtures:
-        detail_parts = [part for part in [fixture.date, fixture.league_name, fixture.round_name, fixture.status] if part]
-        render_fixture_historical_context(games, fixture.home_team, fixture.away_team, detail_parts)
+    fixture_rows = api_fixture_rows(fixtures)
+    selected_idx = st.selectbox(
+        "Partido",
+        range(len(fixture_rows)),
+        format_func=lambda i: fixture_rows[i]["label"],
+        key="api_upcoming_fixture",
+    )
+    render_selected_fixture_analysis(
+        games,
+        fixture_rows[selected_idx],
+        widget_key_prefix="api_fixture",
+    )
 
 
-def render_match_tab(games: pd.DataFrame) -> None:
-    filters = st.columns([1, 1])
-    with filters[0]:
-        selected_competition = select_optional("Competicion", games["competition_id"].dropna().unique().tolist())
+def render_fixture_selector(games: pd.DataFrame) -> bool:
+    mode = st.radio(
+        "Modo de análisis",
+        ["Comparar equipos", "Buscar partido próximo"],
+        horizontal=True,
+    )
+    if mode == "Buscar partido próximo":
+        render_api_fixture_selector(games)
+        return False
 
-    competition_games = games.copy()
-    if selected_competition != "Todos":
-        competition_games = competition_games[competition_games["competition_id"] == selected_competition]
+    return True
 
-    with filters[1]:
-        selected_season = select_optional("Temporada", competition_games["season"].dropna().unique().tolist())
 
-    filtered_games = competition_games.copy()
-    if selected_season != "Todos":
-        filtered_games = filtered_games[filtered_games["season"] == selected_season]
-
-    if filtered_games.empty:
-        st.warning("No hay partidos para los filtros elegidos.")
-        return
-
-    matches = build_team_match_view(filtered_games)
-    discipline = load_appearances(data_version("appearances"))[
-        ["game_id", "player_club_id", "yellow_cards", "red_cards"]
-    ]
+def render_team_comparison_content(
+    games: pd.DataFrame,
+    team_a_id: int,
+    team_b_id: int,
+    team_a_name: str,
+    team_b_name: str,
+    last_n: int = 10,
+    widget_key_prefix: str = "team_compare",
+) -> None:
+    matches = build_team_match_view(games)
+    discipline = load_appearances(data_version("appearances"))[["game_id", "player_club_id", "yellow_cards", "red_cards"]]
     matches = add_team_discipline(matches, discipline)
-    team_options = team_options_from_matches(matches)
-
-    if len(team_options) < 2:
-        st.warning("No hay al menos dos equipos con datos para los filtros elegidos.")
-        return
-
-    left, right, period = st.columns([1, 1, 1])
-    with left:
-        team_a_name = select_required("Equipo local o candidato A", list(team_options.keys()))
-    if team_a_name is None:
-        return
-
-    team_b_options = {name: team_id for name, team_id in team_options.items() if name != team_a_name}
-    with right:
-        team_b_name = select_required("Equipo visitante o candidato B", list(team_b_options.keys()))
-    if team_b_name is None:
-        return
-
-    with period:
-        last_n = st.slider("Ultimos partidos", min_value=5, max_value=50, value=10, step=5)
-
-    team_a_id = int(team_options[team_a_name])
-    team_b_id = int(team_b_options[team_b_name])
     comparison = compare_teams(matches, team_a_id, team_b_id, last_n=last_n)
 
     render_metric_glossary()
+    h2h_summary = head_to_head_summary(games, team_a_id, team_b_id)
+    h2h_by_team = summarize_head_to_head_by_team(matches, team_a_id, team_b_id)
+
     render_individual_team_overview(comparison, team_a_name, team_b_name)
 
-    competitiveness = league_competitiveness(
-        matches,
-        selected_competition if selected_competition != "Todos" else None,
-        int(selected_season) if selected_season != "Todos" else None,
-    )
-    st.caption(
-        f"Competitividad de liga: {competitiveness['parity_index'] * 100:.1f}% "
-        f"({competitiveness['teams']} equipos, dispersion de puntos {competitiveness['points_std']})."
-    )
-
     display = comparison[
-        [
-            "team_name",
-            "played",
-            "wins",
-            "draws",
-            "losses",
-            "avg_goals_for",
-            "avg_goals_against",
-            "over_2_5_rate",
-            "btts_rate",
-            "avg_yellow_cards",
-            "avg_red_cards",
-            "recent_form",
-        ]
+        ["team_name", "played", "wins", "draws", "losses", "avg_goals_for", "avg_goals_against", "over_2_5_rate", "btts_rate", "avg_yellow_cards", "avg_red_cards", "recent_form"]
     ].rename(
         columns={
-            "team_name": "Equipo",
-            "played": "PJ",
-            "wins": "G",
-            "draws": "E",
-            "losses": "P",
-            "avg_goals_for": "GF prom.",
-            "avg_goals_against": "GC prom.",
-            "over_2_5_rate": "Over 2.5",
-            "btts_rate": "BTTS",
-            "avg_yellow_cards": "Amarillas prom.",
-            "avg_red_cards": "Rojas prom.",
-            "recent_form": "Forma",
+            "team_name": "Equipo", "played": "PJ", "wins": "G", "draws": "E", "losses": "P",
+            "avg_goals_for": "GF prom.", "avg_goals_against": "GC prom.",
+            "over_2_5_rate": "Over 2.5", "btts_rate": "BTTS",
+            "avg_yellow_cards": "Amarillas prom.", "avg_red_cards": "Rojas prom.", "recent_form": "Forma",
         }
     )
     display["Over 2.5"] = display["Over 2.5"].map(percent_label)
     display["BTTS"] = display["BTTS"].map(percent_label)
-    st.dataframe(display, hide_index=True, width="stretch")
+    render_team_insight_text(comparison, h2h_summary, team_a_name, team_b_name, last_n)
+    with st.expander("Ver tabla de rendimiento reciente"):
+        st.dataframe(display, hide_index=True, width="stretch")
+
+    competitiveness = league_competitiveness(matches, None, None)
+    st.caption(
+        f"Competitividad de liga: {competitiveness['parity_index'] * 100:.1f}% "
+        f"({competitiveness['teams']} equipos, dispersion de puntos {competitiveness['points_std']})."
+    )
 
     monthly = pd.concat(
         [
@@ -693,7 +1004,25 @@ def render_match_tab(games: pd.DataFrame) -> None:
     )
     if not monthly.empty:
         st.subheader("Rendimiento por mes")
-        st.plotly_chart(px.line(monthly, x="month", y="win_rate", color="team", markers=True), width="stretch")
+        monthly = monthly.copy()
+        monthly["month_date"] = pd.to_datetime(monthly["month"] + "-01", errors="coerce")
+        monthly = monthly.sort_values(["team", "month_date"])
+        monthly["win_rate_suavizado"] = (
+            monthly.groupby("team")["win_rate"]
+            .transform(lambda values: values.rolling(window=3, min_periods=1).mean())
+        )
+        st.plotly_chart(
+            px.line(
+                monthly,
+                x="month_date",
+                y="win_rate_suavizado",
+                color="team",
+                line_shape="spline",
+                labels={"month_date": "Mes", "win_rate_suavizado": "Win Rate suavizado", "team": "Equipo"},
+                range_y=[0, 1],
+            ),
+            width="stretch",
+        )
 
     impact = pd.concat(
         [
@@ -703,44 +1032,174 @@ def render_match_tab(games: pd.DataFrame) -> None:
         ignore_index=True,
     )
     st.subheader("Impacto de tarjeta roja")
-    st.dataframe(impact, hide_index=True, width="stretch")
-
-    h2h_summary = head_to_head_summary(filtered_games, team_a_id, team_b_id)
-    h2h_by_team = summarize_head_to_head_by_team(matches, team_a_id, team_b_id)
-    render_h2h_overview(h2h_summary, h2h_by_team, team_a_name, team_b_name)
-
-    h2h = head_to_head(filtered_games, team_a_id, team_b_id).head(20)
-    if not h2h.empty:
-        game_labels = [
-            f"{row.game_id} - {row.date} - {row.home_club_name} {row.home_club_goals}-{row.away_club_goals} {row.away_club_name}"
-            for row in h2h.itertuples()
-        ]
-        selected_game = st.selectbox("Filtrar por partido historico", ["Todos"] + game_labels)
-        if selected_game != "Todos":
-            selected_game_id = int(selected_game.split(" - ")[0])
-            h2h = h2h[h2h["game_id"] == selected_game_id]
-        st.dataframe(
-            h2h[
-                [
-                    "date",
-                    "season",
-                    "home_club_name",
-                    "home_club_goals",
-                    "away_club_goals",
-                    "away_club_name",
-                    "competition_id",
-                ]
-            ],
-            hide_index=True,
+    if not impact.empty:
+        impact_chart = impact.copy()
+        impact_chart["Win Rate"] = impact_chart["win_rate"].astype(float)
+        st.plotly_chart(
+            px.bar(
+                impact_chart,
+                x="had_red_card",
+                y="Win Rate",
+                color="team",
+                barmode="group",
+                text=impact_chart["Win Rate"].map(lambda value: f"{value * 100:.0f}%"),
+                labels={"had_red_card": "Condición", "team": "Equipo"},
+                range_y=[0, 1],
+            ),
             width="stretch",
         )
+        with st.expander("Ver datos de impacto de tarjeta roja"):
+            st.dataframe(impact, hide_index=True, width="stretch")
+
+    st.divider()
+
+    render_h2h_overview(h2h_summary, h2h_by_team, team_a_name, team_b_name)
+
+    h2h = head_to_head(games, team_a_id, team_b_id).head(20)
+    if not h2h.empty:
+        game_labels = [
+            f"{row.game_id} - {format_display_date(row.date)} - {row.home_club_name} {row.home_club_goals}-{row.away_club_goals} {row.away_club_name}"
+            for row in h2h.itertuples()
+        ]
+        with st.expander("Ver partidos históricos cargados"):
+            selected_game = st.selectbox(
+                "Filtrar por partido",
+                ["Todos"] + game_labels,
+                key=f"{widget_key_prefix}_h2h_game_{team_a_id}_{team_b_id}",
+            )
+            if selected_game != "Todos":
+                selected_game_id = int(selected_game.split(" - ")[0])
+                h2h = h2h[h2h["game_id"] == selected_game_id]
+            h2h_display = h2h[
+                ["date", "season", "home_club_name", "home_club_goals", "away_club_goals", "away_club_name", "competition_id"]
+            ].rename(
+                columns={
+                    "date": "Fecha",
+                    "season": "Temporada",
+                    "home_club_name": "Local",
+                    "home_club_goals": "Goles local",
+                    "away_club_goals": "Goles visitante",
+                    "away_club_name": "Visitante",
+                    "competition_id": "Competición",
+                }
+            )
+            h2h_display["Fecha"] = h2h_display["Fecha"].map(format_display_date)
+            st.dataframe(h2h_display, hide_index=True, width="stretch")
     else:
         st.info("No hay enfrentamientos directos para los equipos y filtros elegidos.")
 
-    render_api_football_oracle(games)
+
+def render_match_tab(games: pd.DataFrame) -> None:
+    render_disclaimer()
+    render_intro_panel(
+        "Analizar equipos",
+        "Compará dos equipos con datos históricos o buscá un partido próximo para que la app complete los equipos automáticamente.",
+    )
+
+    try:
+        show_manual_comparison = render_fixture_selector(games)
+    except Exception as exc:
+        st.error(f"No se pudo mostrar esta sección. Detalle: {exc}")
+        show_manual_comparison = True
+
+    if not show_manual_comparison:
+        return
+
+    st.markdown('<div class="section-title">Compará dos equipos</div>', unsafe_allow_html=True)
+    render_guide_steps(
+        [
+            ("Filtros", "Podés dejarlos en Todos para usar toda la base."),
+            ("Atajo", "Elegí un cruce sugerido si querés probar con equipos que tienen muchos datos."),
+            ("Lectura", "La app resume el rendimiento reciente y el historial directo."),
+        ]
+    )
+
+    selected_competition = "Todos"
+    selected_season = "Todos"
+    with st.expander("Filtros opcionales"):
+        filters = st.columns([1, 1])
+        with filters[0]:
+            selected_competition = select_optional("Competición", games["competition_id"].dropna().unique().tolist())
+
+        competition_preview = games.copy()
+        if selected_competition != "Todos":
+            competition_preview = competition_preview[competition_preview["competition_id"] == selected_competition]
+
+        with filters[1]:
+            selected_season = select_optional("Temporada", competition_preview["season"].dropna().unique().tolist())
+
+    competition_games = games.copy()
+    if selected_competition != "Todos":
+        competition_games = competition_games[competition_games["competition_id"] == selected_competition]
+
+    filtered_games = competition_games.copy()
+    if selected_season != "Todos":
+        filtered_games = filtered_games[filtered_games["season"] == selected_season]
+
+    if filtered_games.empty:
+        st.warning("No hay partidos para los filtros elegidos.")
+        return
+
+    matches = build_team_match_view(filtered_games)
+    discipline = load_appearances(data_version("appearances"))[["game_id", "player_club_id", "yellow_cards", "red_cards"]]
+    matches = add_team_discipline(matches, discipline)
+    team_options = team_options_from_matches(matches)
+
+    if len(team_options) < 2:
+        st.warning("No hay al menos dos equipos con datos para los filtros elegidos.")
+        return
+
+    available_presets = {
+        label: teams
+        for label, teams in TEAM_COMPARISON_PRESETS.items()
+        if teams is None or (teams[0] in team_options and teams[1] in team_options)
+    }
+    selected_preset = st.selectbox("Cruce sugerido", list(available_presets.keys()))
+
+    if available_presets[selected_preset] is None:
+        left, right = st.columns([1, 1])
+        with left:
+            team_a_name = select_required("Primer equipo", list(team_options.keys()))
+        if team_a_name is None:
+            return
+
+        team_b_options = {name: team_id for name, team_id in team_options.items() if name != team_a_name}
+        with right:
+            team_b_name = select_required("Segundo equipo", list(team_b_options.keys()))
+        if team_b_name is None:
+            return
+    else:
+        team_a_name, team_b_name = available_presets[selected_preset]
+        team_b_options = {name: team_id for name, team_id in team_options.items() if name != team_a_name}
+        st.success(f"Comparando {team_a_name} contra {team_b_name}.")
+
+    last_n = st.slider(
+        "Partidos recientes a considerar",
+        min_value=5,
+        max_value=50,
+        value=10,
+        step=5,
+        help="Define cuántos partidos recientes de cada equipo se usan para calcular forma, goles y porcentajes.",
+    )
+
+    team_a_id = int(team_options[team_a_name])
+    team_b_id = int(team_b_options[team_b_name])
+
+    render_team_comparison_content(
+        games=filtered_games,
+        team_a_id=team_a_id,
+        team_b_id=team_b_id,
+        team_a_name=team_a_name,
+        team_b_name=team_b_name,
+        last_n=last_n,
+    )
 
 
 def render_player_tab() -> None:
+    render_intro_panel(
+        "Analizar jugadores",
+        "Elegí un jugador para ver producción ofensiva, minutos, disciplina y contexto de participación.",
+    )
     with st.spinner("Cargando estadisticas de jugadores..."):
         appearances, summary = load_player_data(data_version("appearances"))
 
@@ -761,14 +1220,14 @@ def render_player_tab() -> None:
 
     filters = st.columns([1, 1, 1])
     with filters[0]:
-        selected_competition = select_optional("Competicion del jugador", enriched_history["competition_id"].dropna().unique().tolist())
+        selected_competition = select_optional("Competición", enriched_history["competition_id"].dropna().unique().tolist())
 
     competition_history = enriched_history.copy()
     if selected_competition != "Todos":
         competition_history = competition_history[competition_history["competition_id"] == selected_competition]
 
     with filters[1]:
-        selected_season = select_optional("Temporada del jugador", competition_history["date"].dt.year.dropna().astype(int).unique().tolist())
+        selected_season = select_optional("Temporada", competition_history["date"].dt.year.dropna().astype(int).unique().tolist())
 
     season_history = competition_history.copy()
     if selected_season != "Todos":
@@ -793,34 +1252,87 @@ def render_player_tab() -> None:
     metric_columns[4].metric("Contrib. / 90", f"{selected_summary['contributions_per_90']:.2f}")
 
     substitutions = player_substitution_summary(player_events, selected_player_id)
-    st.caption(
-        f"Impacto de cambios: ingreso como sustituto {substitutions['substituted_in']} veces "
-        f"y fue reemplazado {substitutions['substituted_out']} veces."
+    st.info(
+        f"Lectura rápida: registra {int(selected_summary['goals'])} goles y {int(selected_summary['assists'])} asistencias. "
+        f"Cada 90 minutos promedia {selected_summary['goals_per_90']:.2f} goles y "
+        f"{selected_summary['contributions_per_90']:.2f} contribuciones directas. "
+        f"Ingresó como sustituto {substitutions['substituted_in']} veces y fue reemplazado {substitutions['substituted_out']} veces."
     )
 
     season_summary = player_season_summary(filtered_history)
     chart_data = season_summary.melt(
         id_vars=["season"],
-        value_vars=["goals", "assists", "yellow_cards", "red_cards"],
+        value_vars=["goals", "assists"],
         var_name="KPI",
         value_name="Total",
     )
-    st.plotly_chart(px.line(chart_data, x="season", y="Total", color="KPI", markers=True), width="stretch")
+    chart_data["KPI"] = chart_data["KPI"].replace({"goals": "Goles", "assists": "Asistencias"})
+    st.plotly_chart(
+        px.bar(
+            chart_data,
+            x="season",
+            y="Total",
+            color="KPI",
+            barmode="group",
+            text="Total",
+            labels={"season": "Temporada"},
+            title="Producción ofensiva por temporada",
+        ),
+        width="stretch",
+    )
 
     role_summary = player_role_summary(filtered_history)
     st.subheader("Titularidad o suplencia")
-    st.dataframe(role_summary, hide_index=True, width="stretch")
+    if not role_summary.empty:
+        st.plotly_chart(
+            px.pie(
+                role_summary,
+                names="lineup_role",
+                values="matches",
+                hole=0.45,
+                title="Partidos por rol",
+            ),
+            width="stretch",
+        )
+        with st.expander("Ver datos de titularidad"):
+            st.dataframe(role_summary, hide_index=True, width="stretch")
 
     formation_summary = player_formation_summary(filtered_history)
-    st.subheader("Rendimiento por formacion")
-    st.dataframe(formation_summary.head(10), hide_index=True, width="stretch")
+    st.subheader("Formaciones más usadas")
+    if not formation_summary.empty:
+        formation_chart = formation_summary.head(8)
+        st.plotly_chart(
+            px.bar(
+                formation_chart,
+                x="team_formation",
+                y="matches",
+                text="matches",
+                labels={"team_formation": "Formación", "matches": "Partidos"},
+            ),
+            width="stretch",
+        )
+        with st.expander("Ver datos por formación"):
+            st.dataframe(formation_summary.head(10), hide_index=True, width="stretch")
 
     opponent_summary = player_vs_opponent(enriched_history, None if selected_opponent == "Todos" else selected_opponent)
-    st.subheader("Conversion contra rival")
-    st.dataframe(opponent_summary.head(10), hide_index=True, width="stretch")
+    st.subheader("Rivales contra los que más produjo")
+    if not opponent_summary.empty:
+        opponent_chart = opponent_summary.head(8)
+        st.plotly_chart(
+            px.bar(
+                opponent_chart,
+                x="opponent_name",
+                y="goals",
+                text="goals",
+                labels={"opponent_name": "Rival", "goals": "Goles"},
+            ),
+            width="stretch",
+        )
+        with st.expander("Ver datos por rival"):
+            st.dataframe(opponent_summary.head(10), hide_index=True, width="stretch")
 
-    st.dataframe(
-        filtered_history[
+    with st.expander("Ver partidos del jugador"):
+        player_detail = filtered_history[
             [
                 "date",
                 "competition_id",
@@ -833,13 +1345,16 @@ def render_player_tab() -> None:
                 "red_cards",
                 "minutes_played",
             ]
-        ].head(30),
-        hide_index=True,
-        width="stretch",
-    )
+        ].head(30).copy()
+        player_detail["date"] = player_detail["date"].map(format_display_date)
+        st.dataframe(player_detail, hide_index=True, width="stretch")
 
 
 def render_referee_tab(games: pd.DataFrame) -> None:
+    render_intro_panel(
+        "Analizar árbitros",
+        "Elegí un árbitro para revisar promedios de goles, tarjetas, penales y tendencia local/visitante.",
+    )
     with st.spinner("Cargando estadisticas de arbitros..."):
         referee_matches, referee_summary = load_referee_data(
             games,
@@ -848,7 +1363,7 @@ def render_referee_tab(games: pd.DataFrame) -> None:
         )
 
     referees = referee_summary["referee"].dropna().sort_values().tolist()
-    selected_referee = select_required("Arbitro", referees)
+    selected_referee = select_required("Árbitro", referees)
     if selected_referee is None:
         return
 
@@ -856,14 +1371,14 @@ def render_referee_tab(games: pd.DataFrame) -> None:
 
     filters = st.columns([1, 1, 1])
     with filters[0]:
-        selected_competition = select_optional("Competicion del arbitro", history["competition_id"].dropna().unique().tolist())
+        selected_competition = select_optional("Competición", history["competition_id"].dropna().unique().tolist())
 
     competition_history = history.copy()
     if selected_competition != "Todos":
         competition_history = competition_history[competition_history["competition_id"] == selected_competition]
 
     with filters[1]:
-        selected_season = select_optional("Temporada del arbitro", competition_history["season"].dropna().unique().tolist())
+        selected_season = select_optional("Temporada", competition_history["season"].dropna().unique().tolist())
 
     season_history = competition_history.copy()
     if selected_season != "Todos":
@@ -873,7 +1388,7 @@ def render_referee_tab(games: pd.DataFrame) -> None:
     team_options.update(team_options_from_referee_history(season_history))
 
     with filters[2]:
-        selected_team_name = st.selectbox("Historial arbitro-equipo", list(team_options.keys()))
+        selected_team_name = st.selectbox("Equipo específico", list(team_options.keys()))
 
     history = season_history.copy()
     if selected_team_name != "Todos":
@@ -894,7 +1409,11 @@ def render_referee_tab(games: pd.DataFrame) -> None:
     metric_columns[4].metric("Frec. roja", f"{selected_summary['red_card_frequency'] * 100:.1f}%")
     metric_columns[5].metric("Penales prom.", f"{selected_summary['avg_penalties']:.2f}")
 
-    st.caption(f"Sesgo local/visitante: local {selected_summary['home_win_rate'] * 100:.1f}%, visitante {selected_summary['away_win_rate'] * 100:.1f}%.")
+    st.info(
+        f"Lectura rápida: sus partidos tienen {selected_summary['avg_goals']:.2f} goles de promedio, "
+        f"{selected_summary['avg_yellow_cards']:.2f} amarillas y {selected_summary['avg_red_cards']:.2f} rojas. "
+        f"El local gana el {selected_summary['home_win_rate'] * 100:.1f}% y el visitante el {selected_summary['away_win_rate'] * 100:.1f}%."
+    )
 
     outcome_data = pd.DataFrame(
         {
@@ -906,10 +1425,19 @@ def render_referee_tab(games: pd.DataFrame) -> None:
             ],
         }
     )
-    st.plotly_chart(px.bar(outcome_data, x="Resultado", y="Frecuencia"), width="stretch")
+    st.plotly_chart(
+        px.pie(
+            outcome_data,
+            names="Resultado",
+            values="Frecuencia",
+            hole=0.45,
+            title="Distribución de resultados",
+        ),
+        width="stretch",
+    )
 
-    st.dataframe(
-        history[
+    with st.expander("Ver partidos dirigidos"):
+        referee_detail = history[
             [
                 "date",
                 "season",
@@ -922,10 +1450,9 @@ def render_referee_tab(games: pd.DataFrame) -> None:
                 "penalties",
                 "competition_id",
             ]
-        ].head(30),
-        hide_index=True,
-        width="stretch",
-    )
+        ].head(30).copy()
+        referee_detail["date"] = referee_detail["date"].map(format_display_date)
+        st.dataframe(referee_detail, hide_index=True, width="stretch")
 
 
 render_data_admin()
@@ -936,10 +1463,22 @@ except Exception as exc:
     st.error(f"No se pudieron cargar los datos principales. Detalle: {exc}")
     st.stop()
 
-st.title("Analisis deportivo para toma de decisiones")
+st.markdown("""
+<div style="display:flex; align-items:center; gap:12px; margin-bottom:4px;">
+    <span style="font-size:32px;">⚽</span>
+    <div>
+        <div style="font-size:28px; font-weight:800; color:#f1f5f9; line-height:1.1;">BetStats</div>
+        <div style="font-size:13px; color:#6b7280; letter-spacing:1px; text-transform:uppercase;">Análisis deportivo para toma de decisiones</div>
+    </div>
+</div>
+""", unsafe_allow_html=True)
 
 matches_tab, players_tab, referees_tab = st.tabs(
-    ["Estadisticas de partidos proximos", "Estadisticas de jugadores especificos", "Estadisticas de arbitros"]
+    [
+        "⚽ Equipos",
+        "👤 Jugadores",
+        "🟨 Árbitros",
+    ]
 )
 
 with matches_tab:

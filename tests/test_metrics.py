@@ -45,6 +45,47 @@ class TeamMetricsTest(unittest.TestCase):
         self.assertEqual(matches.loc[matches["team_id"] == 10, "team_yellow_cards"].iloc[0], 2)
         self.assertEqual(matches.loc[matches["team_id"] == 20, "team_red_cards"].iloc[0], 0)
 
+    def test_compare_teams_ignores_future_or_unfinished_matches(self):
+        games = pd.DataFrame(
+            [
+                {
+                    "game_id": 1,
+                    "date": "2024-01-01",
+                    "season": 2024,
+                    "competition_id": "L1",
+                    "home_club_id": 10,
+                    "away_club_id": 20,
+                    "home_club_name": "Local",
+                    "away_club_name": "Visitante",
+                    "home_club_goals": 2,
+                    "away_club_goals": 1,
+                },
+                {
+                    "game_id": 2,
+                    "date": "2999-01-01",
+                    "season": 2999,
+                    "competition_id": "L1",
+                    "home_club_id": 10,
+                    "away_club_id": 20,
+                    "home_club_name": "Local",
+                    "away_club_name": "Visitante",
+                    "home_club_goals": 0,
+                    "away_club_goals": 0,
+                },
+            ]
+        )
+
+        comparison = compare_teams(build_team_match_view(games), 10, 20)
+
+        team_a = comparison[comparison["team_id"] == 10].iloc[0]
+        team_b = comparison[comparison["team_id"] == 20].iloc[0]
+        self.assertEqual(team_a["played"], 1)
+        self.assertEqual(team_a["wins"], 1)
+        self.assertEqual(team_a["recent_form"], "W")
+        self.assertEqual(team_b["played"], 1)
+        self.assertEqual(team_b["losses"], 1)
+        self.assertEqual(team_b["recent_form"], "L")
+
     def test_head_to_head_summary_counts_wins_draws_and_percentages(self):
         games = pd.DataFrame(
             [

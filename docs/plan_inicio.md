@@ -17,9 +17,9 @@ KPIs iniciales:
 
 La app queda separada en tres pestañas:
 
-- `Estadisticas de partidos proximos`: comparacion de dos equipos para analizar un partido futuro o hipotetico.
-- `Estadisticas de jugadores especificos`: indicadores individuales por jugador.
-- `Estadisticas de arbitros`: comportamiento historico de un arbitro y promedios relevantes.
+- `Equipos`: comparacion de dos equipos y seleccion de partidos proximos desde API-Football.
+- `Jugadores`: indicadores individuales por jugador.
+- `Árbitros`: comportamiento historico de un arbitro y promedios relevantes.
 
 ## Orden de trabajo actualizado
 

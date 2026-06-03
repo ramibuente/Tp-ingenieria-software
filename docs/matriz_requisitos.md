@@ -13,7 +13,7 @@ Esta matriz vincula los requisitos del SRS/PGP con la implementacion actual. Cua
 | RF05 | Relacionar clubes, partidos, jugadores, apariciones y eventos por IDs | Implementado | `data_catalog.py`, metricas de equipos/jugadores/arbitros |
 | RF06 | Calcular indicadores estadisticos basicos | Implementado | `metrics/teams.py`, `metrics/players.py`, `metrics/referees.py` |
 | RF07 | Calcular indicadores compuestos para equipos, jugadores y arbitros | Implementado base | Win Rate, BTTS, Over 2.5, por 90, sesgo local/visitante, competitividad, impacto de roja |
-| RF08 | Consultar dashboard de equipos | Implementado | Pestaña `Estadisticas de partidos proximos` |
+| RF08 | Consultar dashboard de equipos | Implementado | Pestaña `Equipos` |
 | RF09 | Dashboard de equipos con Win Rate, Over/Under 2.5, BTTS, racha, rendimiento mensual, roja, Head-to-Head, competitividad | Implementado | `metrics/teams.py` y primera pestaña |
 | RF10 | Consultar dashboard de jugadores | Implementado | Pestaña `Estadisticas de jugadores especificos` |
 | RF11 | Dashboard de jugadores con por 90, rival, titularidad/suplencia, formacion, cambios y disciplina | Implementado base | `metrics/players.py`; cambios se mide con eventos de sustitucion disponibles |

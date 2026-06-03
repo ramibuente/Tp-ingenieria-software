@@ -17,6 +17,10 @@ CREATE TABLE IF NOT EXISTS stg_api_football_fixtures (
     venue_city TEXT,
     goals_home INTEGER,
     goals_away INTEGER,
+    score_ht_home INTEGER,
+    score_ht_away INTEGER,
+    score_ft_home INTEGER,
+    score_ft_away INTEGER,
     source_endpoint TEXT,
     source_params JSONB,
     ingested_at TIMESTAMPTZ,
@@ -51,6 +55,24 @@ CREATE TABLE IF NOT EXISTS mart_upcoming_fixtures (
     status_long TEXT,
     ingested_at TIMESTAMPTZ,
     refreshed_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS stg_api_football_fixture_events (
+    event_id BIGSERIAL PRIMARY KEY,
+    fixture_id BIGINT NOT NULL,
+    elapsed INTEGER,
+    elapsed_extra INTEGER,
+    team_id INTEGER,
+    team_name TEXT,
+    player_id INTEGER,
+    player_name TEXT,
+    assist_id INTEGER,
+    assist_name TEXT,
+    event_type TEXT,
+    event_detail TEXT,
+    ingested_at TIMESTAMPTZ,
+    loaded_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (fixture_id, elapsed, elapsed_extra, team_id, player_id, event_type, event_detail)
 );
 
 CREATE TABLE IF NOT EXISTS mart_fixture_quality_summary (

@@ -9,6 +9,8 @@ from typing import TYPE_CHECKING, Any
 import pandas as pd
 
 from sports_analytics.config import (
+    API_FOOTBALL_EVENTS_PARQUET_DIR,
+    API_FOOTBALL_EVENTS_RAW_DIR,
     API_FOOTBALL_FIXTURES_RAW_DIR,
     API_FOOTBALL_PARQUET_DIR,
     QUALITY_REPORTS_DIR,
@@ -38,8 +40,27 @@ FIXTURE_COLUMNS = [
     "venue_city",
     "goals_home",
     "goals_away",
+    "score_ht_home",
+    "score_ht_away",
+    "score_ft_home",
+    "score_ft_away",
     "source_endpoint",
     "source_params",
+    "ingested_at",
+]
+
+FIXTURE_EVENTS_COLUMNS = [
+    "fixture_id",
+    "elapsed",
+    "elapsed_extra",
+    "team_id",
+    "team_name",
+    "player_id",
+    "player_name",
+    "assist_id",
+    "assist_name",
+    "event_type",
+    "event_detail",
     "ingested_at",
 ]
 
@@ -113,6 +134,10 @@ def normalize_fixture_payload(raw_content: dict[str, Any]) -> pd.DataFrame:
         venue = fixture.get("venue") or {}
         goals = item.get("goals") or {}
 
+        score = item.get("score") or {}
+        ht = score.get("halftime") or {}
+        ft = score.get("fulltime") or {}
+
         records.append(
             {
                 "fixture_id": _to_int_or_none(fixture.get("id")),
@@ -133,6 +158,10 @@ def normalize_fixture_payload(raw_content: dict[str, Any]) -> pd.DataFrame:
                 "venue_city": _clean_text(venue.get("city")),
                 "goals_home": _to_int_or_none(goals.get("home")),
                 "goals_away": _to_int_or_none(goals.get("away")),
+                "score_ht_home": _to_int_or_none(ht.get("home")),
+                "score_ht_away": _to_int_or_none(ht.get("away")),
+                "score_ft_home": _to_int_or_none(ft.get("home")),
+                "score_ft_away": _to_int_or_none(ft.get("away")),
                 "source_endpoint": endpoint,
                 "source_params": params_json,
                 "ingested_at": pd.to_datetime(ingested_at, errors="coerce", utc=True),
@@ -140,7 +169,7 @@ def normalize_fixture_payload(raw_content: dict[str, Any]) -> pd.DataFrame:
         )
 
     frame = pd.DataFrame(records, columns=FIXTURE_COLUMNS)
-    for column in ["fixture_id", "fixture_timestamp", "league_id", "season", "home_team_id", "away_team_id", "goals_home", "goals_away"]:
+    for column in ["fixture_id", "fixture_timestamp", "league_id", "season", "home_team_id", "away_team_id", "goals_home", "goals_away", "score_ht_home", "score_ht_away", "score_ft_home", "score_ft_away"]:
         if column in frame.columns:
             frame[column] = pd.to_numeric(frame[column], errors="coerce")
     return frame
@@ -259,6 +288,85 @@ def build_artifacts_from_response(
         errors=error_count,
         warnings=warning_count,
     )
+
+
+def normalize_fixture_events_payload(fixture_id: int, raw_response: "ApiFootballRawResponse") -> pd.DataFrame:
+    events = raw_response.payload.get("response", [])
+    if not isinstance(events, list):
+        return pd.DataFrame(columns=FIXTURE_EVENTS_COLUMNS)
+
+    ingested_at = pd.to_datetime(utc_now_iso(), errors="coerce", utc=True)
+    records = []
+    for event in events:
+        time = event.get("time") or {}
+        team = event.get("team") or {}
+        player = event.get("player") or {}
+        assist = event.get("assist") or {}
+        records.append(
+            {
+                "fixture_id": int(fixture_id),
+                "elapsed": _to_int_or_none(time.get("elapsed")),
+                "elapsed_extra": _to_int_or_none(time.get("extra")),
+                "team_id": _to_int_or_none(team.get("id")),
+                "team_name": _clean_text(team.get("name")),
+                "player_id": _to_int_or_none(player.get("id")),
+                "player_name": _clean_text(player.get("name")),
+                "assist_id": _to_int_or_none(assist.get("id")),
+                "assist_name": _clean_text(assist.get("name")),
+                "event_type": _clean_text(event.get("type")),
+                "event_detail": _clean_text(event.get("detail")),
+                "ingested_at": ingested_at,
+            }
+        )
+
+    return pd.DataFrame(records, columns=FIXTURE_EVENTS_COLUMNS)
+
+
+def write_events_parquet(events: pd.DataFrame, fixture_id: int, output_dir: Path = API_FOOTBALL_EVENTS_PARQUET_DIR) -> Path:
+    output_dir.mkdir(parents=True, exist_ok=True)
+    path = output_dir / f"events_fixture_{fixture_id}.parquet"
+    events.to_parquet(path, index=False)
+    return path
+
+
+def load_processed_events(fixture_id: int, parquet_dir: Path = API_FOOTBALL_EVENTS_PARQUET_DIR) -> pd.DataFrame:
+    path = parquet_dir / f"events_fixture_{fixture_id}.parquet"
+    if not path.exists():
+        return pd.DataFrame(columns=FIXTURE_EVENTS_COLUMNS)
+    return pd.read_parquet(path)
+
+
+def load_all_processed_events(parquet_dir: Path = API_FOOTBALL_EVENTS_PARQUET_DIR) -> pd.DataFrame:
+    if not parquet_dir.exists():
+        return pd.DataFrame(columns=FIXTURE_EVENTS_COLUMNS)
+    files = sorted(parquet_dir.glob("events_fixture_*.parquet"))
+    if not files:
+        return pd.DataFrame(columns=FIXTURE_EVENTS_COLUMNS)
+    frames = [pd.read_parquet(f) for f in files]
+    return pd.concat(frames, ignore_index=True)
+
+
+def save_raw_events_payload(
+    fixture_id: int,
+    response: "ApiFootballRawResponse",
+    raw_dir: Path = API_FOOTBALL_EVENTS_RAW_DIR,
+    ingested_at: str | None = None,
+) -> Path:
+    raw_dir.mkdir(parents=True, exist_ok=True)
+    timestamp = _file_timestamp(ingested_at)
+    path = raw_dir / f"events_fixture_{fixture_id}_{timestamp}.json"
+    content = {
+        "ingested_at": ingested_at or utc_now_iso(),
+        "fixture_id": fixture_id,
+        "endpoint": response.endpoint,
+        "params": response.params,
+        "status_code": response.status_code,
+        "remaining_requests": response.remaining_requests,
+        "daily_limit": response.daily_limit,
+        "payload": response.payload,
+    }
+    path.write_text(json.dumps(content, ensure_ascii=False, indent=2), encoding="utf-8")
+    return path
 
 
 def _issue(severity: str, issue: str, column: str, count: int, message: str) -> dict[str, object]:

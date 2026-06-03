@@ -39,6 +39,13 @@ TOKEN_ALIASES = {
     "jrs": "juniors",
 }
 
+TEAM_NAME_ALIASES = {
+    "racing": "racing civil avellaneda",
+    "independiente": "independiente avellaneda",
+    "estudiante l p": "estudiante la plata",
+    "estudiantes l p": "estudiante la plata",
+}
+
 
 @dataclass(frozen=True)
 class TeamNameMatch:
@@ -72,6 +79,22 @@ def find_best_team_match(
     if not exact.empty:
         row = exact.iloc[0]
         return TeamNameMatch(team_id=int(row["team_id"]), team_name=str(row["team_name"]), score=1.0)
+
+    alias = TEAM_NAME_ALIASES.get(normalized_external)
+    if alias:
+        aliased = team_index[team_index["normalized_name"] == alias]
+        if not aliased.empty:
+            row = aliased.iloc[0]
+            return TeamNameMatch(team_id=int(row["team_id"]), team_name=str(row["team_name"]), score=1.0)
+
+    external_tokens = set(normalized_external.split())
+    if len(external_tokens) == 1:
+        token = next(iter(external_tokens))
+        candidates = team_index[team_index["normalized_name"].map(lambda value: token in str(value).split())]
+        if len(candidates) == 1:
+            row = candidates.iloc[0]
+            return TeamNameMatch(team_id=int(row["team_id"]), team_name=str(row["team_name"]), score=0.9)
+        return None
 
     best_match: TeamNameMatch | None = None
     for row in team_index.itertuples():
@@ -116,7 +139,7 @@ def _name_similarity(left: str, right: str) -> float:
     jaccard_score = len(overlap) / len(union)
     containment_score = len(overlap) / min(len(left_tokens), len(right_tokens))
 
-    if containment_score == 1 and len(overlap) >= 1:
+    if containment_score == 1 and len(overlap) >= 1 and min(len(left_tokens), len(right_tokens)) > 1:
         containment_score = max(containment_score, 0.86)
 
     return max(sequence_score, jaccard_score, containment_score)

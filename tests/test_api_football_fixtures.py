@@ -99,6 +99,18 @@ class ApiFootballFixturesTest(unittest.TestCase):
                     "away_club_id": 12454,
                     "away_club_name": "Club Atlético Sarmiento",
                 },
+                {
+                    "home_club_id": 1184,
+                    "home_club_name": "Koninklijke Racing Club Genk",
+                    "away_club_id": 69359,
+                    "away_club_name": "CF Independiente Alicante",
+                },
+                {
+                    "home_club_id": 1444,
+                    "home_club_name": "Racing Club Asociación Civil de Avellaneda",
+                    "away_club_id": 1234,
+                    "away_club_name": "Club Atlético Independiente de Avellaneda",
+                },
             ]
         )
         index = build_team_name_index(games)
@@ -109,6 +121,8 @@ class ApiFootballFixturesTest(unittest.TestCase):
         self.assertEqual(find_best_team_match("Rosario Central", index).team_id, 1418)
         self.assertEqual(find_best_team_match("Instituto Cordoba", index).team_id, 1829)
         self.assertEqual(find_best_team_match("Sarmiento Junin", index).team_id, 12454)
+        self.assertEqual(find_best_team_match("Racing Club", index).team_id, 1444)
+        self.assertEqual(find_best_team_match("Independiente", index).team_id, 1234)
 
 
 if __name__ == "__main__":

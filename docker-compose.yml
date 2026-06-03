@@ -136,6 +136,26 @@ services:
     networks:
       - sports-network
 
+  streamlit:
+    build:
+      context: .
+      dockerfile: Dockerfile.streamlit
+    container_name: sports-streamlit
+    ports:
+      - "8501:8501"
+    env_file:
+      - .env
+    environment:
+      PYTHONPATH: /app/src
+    volumes:
+      - ./data:/app/data
+    depends_on:
+      postgres-dwh:
+        condition: service_healthy
+    networks:
+      - sports-network
+    restart: unless-stopped
+
   metabase:
     image: metabase/metabase:latest
     container_name: sports-metabase
