@@ -2,14 +2,15 @@ services:
   postgres-airflow:
     image: postgres:15-alpine
     container_name: sports-postgres-airflow
+    env_file: .env
     environment:
-      POSTGRES_USER: airflow
-      POSTGRES_PASSWORD: airflow
-      POSTGRES_DB: airflow
+      POSTGRES_USER: ${POSTGRES_AIRFLOW_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_AIRFLOW_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_AIRFLOW_DB}
     volumes:
       - postgres_airflow_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U airflow"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_AIRFLOW_USER}"]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -19,17 +20,18 @@ services:
   postgres-dwh:
     image: postgres:15-alpine
     container_name: sports-postgres-dwh
+    env_file: .env
     environment:
-      POSTGRES_USER: dwh
-      POSTGRES_PASSWORD: dwh123
-      POSTGRES_DB: sports_dwh
+      POSTGRES_USER: ${POSTGRES_DWH_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_DWH_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DWH_DB}
     volumes:
       - postgres_dwh_data:/var/lib/postgresql/data
       - ./db/init_dwh.sql:/docker-entrypoint-initdb.d/01_init_dwh.sql:ro
     ports:
       - "5433:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U dwh -d sports_dwh"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_DWH_USER} -d ${POSTGRES_DWH_DB}"]
       interval: 5s
       timeout: 5s
       retries: 10
