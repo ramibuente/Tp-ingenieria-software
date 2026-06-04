@@ -43,6 +43,7 @@ services:
       context: .
       dockerfile: Dockerfile.airflow
     container_name: sports-airflow-init
+    env_file: .env
     command: >
       bash -c "
         airflow db migrate &&
@@ -50,10 +51,10 @@ services:
       "
     environment:
       AIRFLOW__CORE__EXECUTOR: LocalExecutor
-      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres-airflow:5432/airflow
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${POSTGRES_AIRFLOW_USER}:${POSTGRES_AIRFLOW_PASSWORD}@postgres-airflow:5432/${POSTGRES_AIRFLOW_DB}
       AIRFLOW__CORE__LOAD_EXAMPLES: "False"
       AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "True"
-      AIRFLOW__WEBSERVER__SECRET_KEY: sports-analytics-local-secret
+      AIRFLOW__WEBSERVER__SECRET_KEY: ${AIRFLOW_SECRET_KEY}
     depends_on:
       postgres-airflow:
         condition: service_healthy
@@ -66,21 +67,22 @@ services:
       dockerfile: Dockerfile.airflow
     container_name: sports-airflow-scheduler
     command: airflow scheduler
+    env_file: .env
     dns:
       - 8.8.8.8
       - 1.1.1.1
     environment:
       AIRFLOW__CORE__EXECUTOR: LocalExecutor
-      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres-airflow:5432/airflow
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${POSTGRES_AIRFLOW_USER}:${POSTGRES_AIRFLOW_PASSWORD}@postgres-airflow:5432/${POSTGRES_AIRFLOW_DB}
       AIRFLOW__CORE__LOAD_EXAMPLES: "False"
       AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "True"
-      AIRFLOW__WEBSERVER__SECRET_KEY: sports-analytics-local-secret
-      AIRFLOW_CONN_POSTGRES_DWH: postgres://dwh:dwh123@postgres-dwh:5432/sports_dwh
+      AIRFLOW__WEBSERVER__SECRET_KEY: ${AIRFLOW_SECRET_KEY}
+      AIRFLOW_CONN_POSTGRES_DWH: postgres://${POSTGRES_DWH_USER}:${POSTGRES_DWH_PASSWORD}@postgres-dwh:5432/${POSTGRES_DWH_DB}
       API_FOOTBALL_LEAGUE_IDS: ${API_FOOTBALL_LEAGUE_IDS:-}
       APIFOOTBALL_API_KEY: ${APIFOOTBALL_API_KEY:-}
       API_FOOTBALL_LEAGUE_ID: ${API_FOOTBALL_LEAGUE_ID:-}
       API_FOOTBALL_SEASON: ${API_FOOTBALL_SEASON:-}
-      API_FOOTBALL_NEXT_FIXTURES: ${API_FOOTBALL_NEXT_FIXTURES:-20}
+      API_FOOTBALL_NEXT_FIXTURES: ${API_FOOTBALL_NEXT_FIXTURES:-0}
       PYTHONPATH: /opt/airflow/src
     volumes:
       - ./dags:/opt/airflow/dags
@@ -103,6 +105,7 @@ services:
       dockerfile: Dockerfile.airflow
     container_name: sports-airflow-webserver
     command: airflow webserver
+    env_file: .env
     dns:
       - 8.8.8.8
       - 1.1.1.1
@@ -110,16 +113,16 @@ services:
       - "8080:8080"
     environment:
       AIRFLOW__CORE__EXECUTOR: LocalExecutor
-      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres-airflow:5432/airflow
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${POSTGRES_AIRFLOW_USER}:${POSTGRES_AIRFLOW_PASSWORD}@postgres-airflow:5432/${POSTGRES_AIRFLOW_DB}
       AIRFLOW__CORE__LOAD_EXAMPLES: "False"
       AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "True"
-      AIRFLOW__WEBSERVER__SECRET_KEY: sports-analytics-local-secret
-      AIRFLOW_CONN_POSTGRES_DWH: postgres://dwh:dwh123@postgres-dwh:5432/sports_dwh
+      AIRFLOW__WEBSERVER__SECRET_KEY: ${AIRFLOW_SECRET_KEY}
+      AIRFLOW_CONN_POSTGRES_DWH: postgres://${POSTGRES_DWH_USER}:${POSTGRES_DWH_PASSWORD}@postgres-dwh:5432/${POSTGRES_DWH_DB}
       API_FOOTBALL_LEAGUE_IDS: ${API_FOOTBALL_LEAGUE_IDS:-}
       APIFOOTBALL_API_KEY: ${APIFOOTBALL_API_KEY:-}
       API_FOOTBALL_LEAGUE_ID: ${API_FOOTBALL_LEAGUE_ID:-}
       API_FOOTBALL_SEASON: ${API_FOOTBALL_SEASON:-}
-      API_FOOTBALL_NEXT_FIXTURES: ${API_FOOTBALL_NEXT_FIXTURES:-20}
+      API_FOOTBALL_NEXT_FIXTURES: ${API_FOOTBALL_NEXT_FIXTURES:-0}
       PYTHONPATH: /opt/airflow/src
     volumes:
       - ./dags:/opt/airflow/dags
@@ -145,8 +148,7 @@ services:
     container_name: sports-streamlit
     ports:
       - "8501:8501"
-    env_file:
-      - .env
+    env_file: .env
     environment:
       PYTHONPATH: /app/src
     volumes:
