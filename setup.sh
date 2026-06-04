@@ -1,6 +1,13 @@
 #!/bin/bash
 set -e
 
+cd "$(dirname "$0")"
+
+if [ ! -f .env.example ]; then
+    echo "ERROR: .env.example no encontrado. Asegurate de clonar el repositorio completo."
+    exit 1
+fi
+
 if [ ! -f .env ]; then
     cp .env.example .env
     echo ""
