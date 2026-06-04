@@ -47,7 +47,7 @@ services:
     command: >
       bash -c "
         airflow db migrate &&
-        airflow users create --username admin --password admin --firstname Admin --lastname Sports --role Admin --email admin@example.com || true
+        airflow users create --username admin --password ${AIRFLOW_ADMIN_PASSWORD:-admin} --firstname Admin --lastname Sports --role Admin --email admin@example.com || true
       "
     environment:
       AIRFLOW__CORE__EXECUTOR: LocalExecutor

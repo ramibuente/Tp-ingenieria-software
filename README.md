@@ -96,7 +96,7 @@ Servicios:
 
 - Airflow UI: http://localhost:8080 (`admin` / `admin`)
 - Metabase: http://localhost:3000
-- PostgreSQL DWH desde host: `localhost:5433`, base `sports_dwh`, usuario `dwh`, password `dwh123`
+- PostgreSQL DWH desde host: `localhost:5433`, base `sports_dwh`, usuario `dwh`, password definido en `POSTGRES_DWH_PASSWORD` del `.env`
 
 El DAG principal es `football_analytics_pipeline`.
 

@@ -54,7 +54,9 @@ def _config_value(variable_name: str, env_name: str, required: bool = True) -> s
 
 
 def _get_dwh_connection():
-    raw_uri = os.getenv("AIRFLOW_CONN_POSTGRES_DWH", "postgres://dwh:dwh123@postgres-dwh:5432/sports_dwh")
+    raw_uri = os.getenv("AIRFLOW_CONN_POSTGRES_DWH")
+    if not raw_uri:
+        raise ValueError("AIRFLOW_CONN_POSTGRES_DWH no está configurado. Definilo en el entorno o en Airflow Connections.")
     parsed = urlparse(raw_uri)
     return psycopg2.connect(
         host=parsed.hostname,
