@@ -149,16 +149,8 @@ services:
     ports:
       - "8501:8501"
     env_file: .env
-    dns:
-      - 8.8.8.8
-      - 1.1.1.1
     environment:
       PYTHONPATH: /app/src
-      APIFOOTBALL_API_KEY: ${APIFOOTBALL_API_KEY:-}
-      API_FOOTBALL_LEAGUE_ID: ${API_FOOTBALL_LEAGUE_ID:-}
-      API_FOOTBALL_LEAGUE_IDS: ${API_FOOTBALL_LEAGUE_IDS:-}
-      API_FOOTBALL_SEASON: ${API_FOOTBALL_SEASON:-}
-      API_FOOTBALL_NEXT_FIXTURES: ${API_FOOTBALL_NEXT_FIXTURES:-0}
     volumes:
       - ./data:/app/data
     depends_on:

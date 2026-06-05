@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mi Dashboard</title>
+
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f4f6f9;
+            margin: 0;
+            padding: 0;
+        }
+
+        header {
+            background-color: #2563eb;
+            color: white;
+            padding: 20px;
+            text-align: center;
+        }
+
+        .container {
+            width: 80%;
+            margin: 30px auto;
+        }
+
+        .card {
+            background: white;
+            padding: 20px;
+            margin-bottom: 20px;
+            border-radius: 12px;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+        }
+
+        button {
+            background-color: #2563eb;
+            color: white;
+            border: none;
+            padding: 12px 20px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+
+        button:hover {
+            background-color: #1d4ed8;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        th, td {
+            padding: 12px;
+            border-bottom: 1px solid #ddd;
+            text-align: left;
+        }
+
+        th {
+            background-color: #f1f5f9;
+        }
+    </style>
+</head>
+<body>
+
+    <header>
+        <h1>Dashboard de Datos</h1>
+        <p>Ejemplo básico en HTML</p>
+    </header>
+
+    <div class="container">
+
+        <div class="card">
+            <h2>Subir archivo</h2>
+            <input type="file">
+            <br><br>
+            <button onclick="alert('Archivo procesado')">Procesar</button>
+        </div>
+
+        <div class="card">
+            <h2>Estadísticas</h2>
+            <p><strong>Total registros:</strong> 150</p>
+            <p><strong>Promedio:</strong> 24.8</p>
+            <p><strong>Máximo:</strong> 100</p>
+        </div>
+
+        <div class="card">
+            <h2>Tabla de ejemplo</h2>
+            <table>
+                <tr>
+                    <th>Nombre</th>
+                    <th>Valor</th>
+                </tr>
+                <tr>
+                    <td>Dato 1</td>
+                    <td>45</td>
+                </tr>
+                <tr>
+                    <td>Dato 2</td>
+                    <td>67</td>
+                </tr>
+                <tr>
+                    <td>Dato 3</td>
+                    <td>23</td>
+                </tr>
+            </table>
+        </div>
+
+    </div>
+
+</body>
+</html>

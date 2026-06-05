@@ -1,0 +1,2 @@
+"""Calculo de KPIs."""
+

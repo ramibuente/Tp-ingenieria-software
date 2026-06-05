@@ -51,9 +51,7 @@ from sports_analytics.metrics.teams import (
 from sports_analytics.services.api_football import (
     ApiFootballConfigError,
     ApiFootballError,
-    TeamStanding,
     UpcomingFixture,
-    fetch_league_standings,
     fetch_upcoming_fixtures,
     get_api_football_key,
 )
@@ -291,16 +289,6 @@ def load_upcoming_fixtures_from_api(
         timezone=timezone,
         api_key=_api_key,
     )
-
-
-@st.cache_data(ttl=1800, show_spinner=False)
-def load_standings_from_api(
-    league_id: int,
-    season: int,
-    api_key_marker: str,
-    _api_key: str,
-):
-    return fetch_league_standings(league_id=league_id, season=season, api_key=_api_key)
 
 def render_disclaimer() -> None:
     st.markdown(
@@ -952,197 +940,6 @@ Este campo aparece solo porque no se detectó una clave configurada en el entorn
     )
 
 
-def _safe_div(numerator: float, denominator: float) -> float:
-    try:
-        if not denominator:
-            return 0.0
-        return float(numerator) / float(denominator)
-    except (TypeError, ValueError, ZeroDivisionError):
-        return 0.0
-
-
-def standings_to_dataframe(standings: list[TeamStanding]) -> pd.DataFrame:
-    records = []
-    for s in standings:
-        played = s.played or 0
-        home_p = s.home_played or 0
-        away_p = s.away_played or 0
-        records.append(
-            {
-                "Pos": s.rank,
-                "Equipo": s.team_name,
-                "PJ": played,
-                "Pts": s.points,
-                "PPG": round(_safe_div(s.points or 0, played), 2),
-                "G": s.win,
-                "E": s.draw,
-                "P": s.loss,
-                "GF": s.goals_for,
-                "GC": s.goals_against,
-                "DG": s.goals_diff,
-                "Prom goles/p": round(_safe_div((s.goals_for or 0) + (s.goals_against or 0), played), 2),
-                "PPG local": round(_safe_div((s.home_win or 0) * 3 + (s.home_draw or 0), home_p), 2),
-                "PPG visit": round(_safe_div((s.away_win or 0) * 3 + (s.away_draw or 0), away_p), 2),
-                "Goles local/p": round(_safe_div((s.home_goals_for or 0) + (s.home_goals_against or 0), home_p), 2),
-                "Goles visit/p": round(_safe_div((s.away_goals_for or 0) + (s.away_goals_against or 0), away_p), 2),
-                "Forma": s.form or "",
-                "Zona": s.group_name or "",
-            }
-        )
-    return pd.DataFrame(records)
-
-
-def _form_breakdown(form: str) -> str:
-    form = (form or "").upper()
-    wins = form.count("W")
-    draws = form.count("D")
-    losses = form.count("L")
-    return f"{wins}G {draws}E {losses}P en los últimos {len(form)}" if form else "sin datos de forma"
-
-
-def render_standings_betting_cards(df: pd.DataFrame) -> None:
-    if df.empty:
-        return
-    leader = df.sort_values("Pos").iloc[0]
-    best_home = df.sort_values("PPG local", ascending=False).iloc[0]
-    best_away = df.sort_values("PPG visit", ascending=False).iloc[0]
-    most_goals = df.sort_values("Prom goles/p", ascending=False).iloc[0]
-    best_defense = df.sort_values("GC").iloc[0]
-
-    st.markdown("**Claves para la previa**")
-    cols = st.columns(5)
-    cols[0].metric("Puntero", str(leader["Equipo"]), f'{leader["Pts"]} pts')
-    cols[1].metric("Más fuerte de local", str(best_home["Equipo"]), f'{best_home["PPG local"]} PPG')
-    cols[2].metric("Más fuerte de visitante", str(best_away["Equipo"]), f'{best_away["PPG visit"]} PPG')
-    cols[3].metric("Partidos con más goles", str(most_goals["Equipo"]), f'{most_goals["Prom goles/p"]} goles/p')
-    cols[4].metric("Defensa más sólida", str(best_defense["Equipo"]), f'{best_defense["GC"]} GC')
-
-
-def render_team_betting_read(standings: list[TeamStanding], team_name: str) -> None:
-    s = next((x for x in standings if x.team_name == team_name), None)
-    if s is None:
-        return
-
-    home_p = s.home_played or 0
-    away_p = s.away_played or 0
-    home_ppg = round(_safe_div((s.home_win or 0) * 3 + (s.home_draw or 0), home_p), 2)
-    away_ppg = round(_safe_div((s.away_win or 0) * 3 + (s.away_draw or 0), away_p), 2)
-    home_goals = round(_safe_div((s.home_goals_for or 0) + (s.home_goals_against or 0), home_p), 2)
-    away_goals = round(_safe_div((s.away_goals_for or 0) + (s.away_goals_against or 0), away_p), 2)
-
-    st.markdown(f"#### Lectura para la previa — {team_name}")
-    cols = st.columns(2)
-    with cols[0]:
-        st.markdown("**De local**")
-        st.metric("Puntos por partido", f"{home_ppg}")
-        st.metric("Goles totales por partido", f"{home_goals}")
-        st.caption(f"Récord local: {s.home_win or 0}G {s.home_draw or 0}E {s.home_loss or 0}P")
-        tendency = "tiende a superar los 2.5 goles (Over)" if home_goals >= 2.5 else "tiende a quedar bajo 2.5 goles (Under)"
-        st.caption(f"Cuando juega de local, el partido {tendency}.")
-    with cols[1]:
-        st.markdown("**De visitante**")
-        st.metric("Puntos por partido", f"{away_ppg}")
-        st.metric("Goles totales por partido", f"{away_goals}")
-        st.caption(f"Récord visitante: {s.away_win or 0}G {s.away_draw or 0}E {s.away_loss or 0}P")
-        tendency = "tiende a superar los 2.5 goles (Over)" if away_goals >= 2.5 else "tiende a quedar bajo 2.5 goles (Under)"
-        st.caption(f"Cuando juega de visitante, el partido {tendency}.")
-
-    st.caption(f"Forma reciente: {s.form or 'sin datos'} ({_form_breakdown(s.form)}).")
-
-
-def render_league_tab() -> None:
-    render_intro_panel(
-        "Tabla de posiciones de la liga",
-        "Mirá cómo llega cada equipo a la fecha: rendimiento de local y de visitante, "
-        "promedio de goles y forma reciente. Son señales útiles para la previa de un partido.",
-    )
-    render_guide_steps(
-        [
-            ("Elegí una liga", "No necesitás saber el ID, usá una de las opciones frecuentes."),
-            ("Traé la tabla", "La app consulta la posición actual con una sola consulta a internet."),
-            ("Leé las señales", "Fijate el rendimiento local/visitante y la tendencia de goles del equipo que te interesa."),
-        ]
-    )
-
-    configured_key = get_api_football_key()
-    if configured_key:
-        api_key = configured_key
-        st.caption("La conexión con la tabla de posiciones ya está configurada para esta app.")
-    else:
-        with st.expander("Clave de acceso para la tabla de posiciones", expanded=True):
-            st.markdown(
-                "La app necesita una clave de API-Football para consultar la tabla en internet. "
-                "En una versión publicada debería configurarla el equipo del proyecto."
-            )
-            api_key = st.text_input(
-                "Clave de API-Football",
-                type="password",
-                key="standings_api_key",
-                help="Para desarrollo local. En producción conviene configurar APIFOOTBALL_API_KEY en el servidor.",
-            ).strip()
-
-    preset_name = st.selectbox(
-        "Liga",
-        list(API_FOOTBALL_LEAGUE_PRESETS.keys())[1:] + ["Personalizado"],
-        key="standings_preset",
-    )
-    preset = API_FOOTBALL_LEAGUE_PRESETS[preset_name]
-    with st.expander("Ajustes avanzados"):
-        st.caption("Si la liga elegida no devuelve datos, probá una temporada que cubra el plan gratuito (por ejemplo 2023).")
-        controls = st.columns(2)
-        with controls[0]:
-            league_id, league_ok = optional_int_filter(
-                "ID de liga",
-                key=f"standings_league_id_{preset_name}",
-                value=preset["league_id"],
-                help_text="Ejemplo: Argentina 128, LaLiga 140, Premier League 39.",
-            )
-        with controls[1]:
-            season, season_ok = optional_int_filter(
-                "Temporada",
-                key=f"standings_season_{preset_name}",
-                value=preset["season"],
-                help_text="Año de inicio de la temporada. Ejemplo: 2023.",
-            )
-
-    if not api_key:
-        st.info("Falta configurar la clave de API-Football para consultar la tabla de posiciones.")
-        return
-    if not (league_ok and season_ok) or league_id is None or season is None:
-        st.info("Ingresá una liga y una temporada válidas.")
-        return
-
-    if st.button("Traer tabla de posiciones", type="primary"):
-        key_marker = f"{len(api_key)}:{api_key[-4:]}"
-        try:
-            with st.spinner("Consultando tabla de posiciones..."):
-                standings = load_standings_from_api(league_id, season, key_marker, _api_key=api_key)
-            st.session_state.league_standings = standings
-            st.session_state.league_standings_query = (league_id, season)
-        except ApiFootballConfigError as exc:
-            st.info(str(exc))
-            return
-        except ApiFootballError as exc:
-            st.error(f"No se pudo consultar API-Football. {exc}")
-            return
-
-    standings: list[TeamStanding] | None = st.session_state.get("league_standings")
-    if not standings:
-        if standings is not None:
-            st.warning("No se encontraron posiciones para esa liga y temporada. Probá con otra temporada (por ejemplo 2023).")
-        return
-
-    df = standings_to_dataframe(standings)
-    render_standings_betting_cards(df)
-    st.dataframe(df.set_index("Pos"), use_container_width=True)
-
-    team_names = df["Equipo"].tolist()
-    selected_team = st.selectbox("Ver lectura para la previa de un equipo", team_names, key="standings_team_read")
-    render_team_betting_read(standings, selected_team)
-
-    render_disclaimer()
-
-
 def render_fixture_selector(games: pd.DataFrame) -> bool:
     mode = st.radio(
         "Modo de análisis",
@@ -1676,12 +1473,11 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-matches_tab, players_tab, referees_tab, league_tab = st.tabs(
+matches_tab, players_tab, referees_tab = st.tabs(
     [
         "⚽ Equipos",
         "👤 Jugadores",
         "🟨 Árbitros",
-        "🏆 Liga",
     ]
 )
 
@@ -1693,6 +1489,3 @@ with players_tab:
 
 with referees_tab:
     safe_render(render_referee_tab, games)
-
-with league_tab:
-    safe_render(render_league_tab)

@@ -65,36 +65,6 @@ class LiveFixture:
     goals_away: int | None
 
 
-@dataclass(frozen=True)
-class TeamStanding:
-    rank: int | None
-    team_id: int | None
-    team_name: str
-    group_name: str
-    description: str
-    form: str
-    points: int | None
-    played: int | None
-    win: int | None
-    draw: int | None
-    loss: int | None
-    goals_for: int | None
-    goals_against: int | None
-    goals_diff: int | None
-    home_played: int | None
-    home_win: int | None
-    home_draw: int | None
-    home_loss: int | None
-    home_goals_for: int | None
-    home_goals_against: int | None
-    away_played: int | None
-    away_win: int | None
-    away_draw: int | None
-    away_loss: int | None
-    away_goals_for: int | None
-    away_goals_against: int | None
-
-
 def get_api_football_key() -> str | None:
     for env_var in API_KEY_ENV_VARS:
         value = os.getenv(env_var)
@@ -258,99 +228,6 @@ def fetch_live_fixtures(
     if not isinstance(fixtures, list):
         return []
     return [_parse_live_fixture(item) for item in fixtures]
-
-
-def fetch_league_standings(
-    league_id: int,
-    season: int,
-    api_key: str | None = None,
-    timeout: int = 15,
-) -> list[TeamStanding]:
-    """Consulta /standings (una sola request por liga+temporada).
-
-    Endpoint disponible en el plan gratuito de API-Football. Devuelve la tabla
-    de posiciones con desglose local/visitante y forma reciente, datos utiles
-    para el analisis previo de un partido.
-    """
-    resolved_key = api_key or get_api_football_key()
-    if not resolved_key:
-        env_names = ", ".join(API_KEY_ENV_VARS)
-        raise ApiFootballConfigError(f"Falta configurar una API key en alguna de estas variables: {env_names}.")
-
-    params: dict[str, Any] = {"league": int(league_id), "season": int(season)}
-
-    try:
-        response = requests.get(
-            f"{API_FOOTBALL_BASE_URL}/standings",
-            headers={"x-apisports-key": resolved_key, "Accept": "application/json"},
-            params=params,
-            timeout=timeout,
-        )
-        response.raise_for_status()
-        payload = response.json()
-    except requests.RequestException as exc:
-        raise ApiFootballError(f"No se pudo conectar con API-Football. Detalle: {exc}") from exc
-    except ValueError as exc:
-        raise ApiFootballError("API-Football devolvio una respuesta que no es JSON valido.") from exc
-
-    errors = payload.get("errors")
-    if errors:
-        raise ApiFootballError(f"API-Football informo un error: {_format_api_errors(errors)}")
-
-    response_items = payload.get("response", [])
-    if not isinstance(response_items, list) or not response_items:
-        return []
-
-    standings: list[TeamStanding] = []
-    for league_block in response_items:
-        league = (league_block or {}).get("league") or {}
-        groups = league.get("standings") or []
-        for group in groups:
-            if not isinstance(group, list):
-                continue
-            for row in group:
-                standings.append(_parse_standing(row))
-    return standings
-
-
-def _parse_standing(row: dict[str, Any]) -> TeamStanding:
-    row = row or {}
-    team = row.get("team") or {}
-    all_stats = row.get("all") or {}
-    all_goals = all_stats.get("goals") or {}
-    home = row.get("home") or {}
-    home_goals = home.get("goals") or {}
-    away = row.get("away") or {}
-    away_goals = away.get("goals") or {}
-
-    return TeamStanding(
-        rank=_to_int_or_none(row.get("rank")),
-        team_id=_to_int_or_none(team.get("id")),
-        team_name=str(team.get("name") or ""),
-        group_name=str(row.get("group") or ""),
-        description=str(row.get("description") or ""),
-        form=str(row.get("form") or ""),
-        points=_to_int_or_none(row.get("points")),
-        played=_to_int_or_none(all_stats.get("played")),
-        win=_to_int_or_none(all_stats.get("win")),
-        draw=_to_int_or_none(all_stats.get("draw")),
-        loss=_to_int_or_none(all_stats.get("lose")),
-        goals_for=_to_int_or_none(all_goals.get("for")),
-        goals_against=_to_int_or_none(all_goals.get("against")),
-        goals_diff=_to_int_or_none(row.get("goalsDiff")),
-        home_played=_to_int_or_none(home.get("played")),
-        home_win=_to_int_or_none(home.get("win")),
-        home_draw=_to_int_or_none(home.get("draw")),
-        home_loss=_to_int_or_none(home.get("lose")),
-        home_goals_for=_to_int_or_none(home_goals.get("for")),
-        home_goals_against=_to_int_or_none(home_goals.get("against")),
-        away_played=_to_int_or_none(away.get("played")),
-        away_win=_to_int_or_none(away.get("win")),
-        away_draw=_to_int_or_none(away.get("draw")),
-        away_loss=_to_int_or_none(away.get("lose")),
-        away_goals_for=_to_int_or_none(away_goals.get("for")),
-        away_goals_against=_to_int_or_none(away_goals.get("against")),
-    )
 
 
 def fetch_fixture_events(

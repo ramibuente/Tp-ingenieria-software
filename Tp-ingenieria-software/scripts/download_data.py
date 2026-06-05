@@ -1,0 +1,17 @@
+import os
+
+import gdown
+
+DATA_DIR = "data/raw"
+FOLDER_URL = "https://drive.google.com/drive/folders/1W1wzQ1DU2Tl-596JoMIWr1Y5TcbjygbI?usp=sharing"
+
+os.makedirs(DATA_DIR, exist_ok=True)
+
+print("Descargando datasets (~800 MB, puede tardar)...")
+gdown.download_folder(
+    FOLDER_URL,
+    output=DATA_DIR,
+    quiet=False,
+    use_cookies=False
+)
+print("Listo. Archivos en", DATA_DIR)
