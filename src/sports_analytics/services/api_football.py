@@ -7,7 +7,7 @@ from typing import Any
 
 import requests
 
-from sports_analytics.config import PROJECT_ROOT
+from sports_analytics.config import API_FOOTBALL_MAX_SEASON, PROJECT_ROOT
 
 
 API_FOOTBALL_BASE_URL = "https://v3.football.api-sports.io"
@@ -168,7 +168,7 @@ def fetch_fixtures_payload(
     if league_id is not None:
         params["league"] = int(league_id)
     if season is not None:
-        params["season"] = int(season)
+        params["season"] = _api_football_season_param(season)
     if team_id is not None:
         params["team"] = int(team_id)
     if from_date:
@@ -277,7 +277,7 @@ def fetch_league_standings(
         env_names = ", ".join(API_KEY_ENV_VARS)
         raise ApiFootballConfigError(f"Falta configurar una API key en alguna de estas variables: {env_names}.")
 
-    params: dict[str, Any] = {"league": int(league_id), "season": int(season)}
+    params: dict[str, Any] = {"league": int(league_id), "season": _api_football_season_param(season)}
 
     try:
         response = requests.get(
@@ -449,6 +449,13 @@ def _format_api_errors(errors: object) -> str:
     if isinstance(errors, list):
         return "; ".join(str(value) for value in errors) or str(errors)
     return str(errors)
+
+
+def _api_football_season_param(season: int) -> int:
+    parsed = int(season)
+    if parsed > API_FOOTBALL_MAX_SEASON:
+        raise ApiFootballError(f"API-Football solo acepta temporadas hasta {API_FOOTBALL_MAX_SEASON}.")
+    return parsed
 
 
 def _to_int_or_none(value: object) -> int | None:

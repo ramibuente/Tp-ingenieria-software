@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import pandas as pd
 
+from sports_analytics.config import CURRENT_DATE
+
 
 REQUIRED_GAME_COLUMNS = [
     "game_id",
@@ -17,6 +19,10 @@ REQUIRED_GAME_COLUMNS = [
 ]
 
 TEAM_DISCIPLINE_COLUMNS = ["game_id", "player_club_id", "yellow_cards", "red_cards"]
+
+
+def _current_date() -> pd.Timestamp:
+    return pd.Timestamp(CURRENT_DATE).normalize()
 
 
 def build_team_match_view(games: pd.DataFrame) -> pd.DataFrame:
@@ -67,7 +73,7 @@ def build_team_match_view(games: pd.DataFrame) -> pd.DataFrame:
     matches["lost"] = matches["goals_for"] < matches["goals_against"]
     matches["btts"] = (matches["goals_for"] > 0) & (matches["goals_against"] > 0)
     matches["over_2_5"] = matches["total_goals"] > 2.5
-    today = pd.Timestamp.today().normalize()
+    today = _current_date()
     matches["completed"] = (
         matches["goals_for"].notna()
         & matches["goals_against"].notna()
@@ -173,7 +179,7 @@ def head_to_head_summary(games: pd.DataFrame, team_a_id: int, team_b_id: int) ->
         return _empty_head_to_head_summary(team_a_id, team_b_id)
 
     h2h["date"] = pd.to_datetime(h2h["date"], errors="coerce")
-    today = pd.Timestamp.today().normalize()
+    today = _current_date()
     completed = h2h[
         h2h["home_club_goals"].notna()
         & h2h["away_club_goals"].notna()
@@ -245,7 +251,7 @@ def summarize_head_to_head_by_team(matches: pd.DataFrame, team_a_id: int, team_b
     direct = direct[
         direct["goals_for"].notna()
         & direct["goals_against"].notna()
-        & (direct["date"].isna() | (direct["date"] <= pd.Timestamp.today().normalize()))
+        & (direct["date"].isna() | (direct["date"] <= _current_date()))
     ]
     if direct.empty:
         return pd.DataFrame(

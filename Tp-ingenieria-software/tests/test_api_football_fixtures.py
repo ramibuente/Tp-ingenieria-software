@@ -1,4 +1,5 @@
 import unittest
+from unittest.mock import patch
 
 import pandas as pd
 
@@ -6,13 +7,14 @@ from sports_analytics.ingestion.api_football_fixtures import (
     build_fixture_quality_report,
     normalize_fixture_payload,
 )
+from sports_analytics.services.api_football import ApiFootballError, fetch_fixtures_payload
 from sports_analytics.services.team_matching import build_team_name_index, find_best_team_match
 
 
 class ApiFootballFixturesTest(unittest.TestCase):
     def test_normalize_fixture_payload_flattens_api_response(self):
         raw = {
-            "ingested_at": "2026-05-19T18:00:00+00:00",
+            "ingested_at": "2024-05-19T18:00:00+00:00",
             "endpoint": "/fixtures",
             "params": {"league": 128, "season": 2024, "next": 2},
             "payload": {
@@ -20,8 +22,8 @@ class ApiFootballFixturesTest(unittest.TestCase):
                     {
                         "fixture": {
                             "id": 123,
-                            "date": "2026-05-20T21:00:00+00:00",
-                            "timestamp": 1779310800,
+                            "date": "2024-05-20T21:00:00+00:00",
+                            "timestamp": 1716238800,
                             "timezone": "America/Argentina/Buenos_Aires",
                             "status": {"short": "NS", "long": "Not Started"},
                             "venue": {"name": "Estadio Demo", "city": "La Plata"},
@@ -46,12 +48,19 @@ class ApiFootballFixturesTest(unittest.TestCase):
         self.assertEqual(fixtures.iloc[0]["away_team_name"], "Equipo B")
         self.assertIn('"league": 128', fixtures.iloc[0]["source_params"])
 
+    def test_fetch_fixtures_rejects_seasons_after_2024_before_request(self):
+        with patch("sports_analytics.services.api_football.requests.get") as requests_get:
+            with self.assertRaisesRegex(ApiFootballError, "hasta 2024"):
+                fetch_fixtures_payload(league_id=128, season=2025, api_key="demo")
+
+        requests_get.assert_not_called()
+
     def test_quality_report_flags_duplicate_fixture_ids(self):
         fixtures = pd.DataFrame(
             [
                 {
                     "fixture_id": 123,
-                    "fixture_date": "2026-05-20",
+                    "fixture_date": "2024-05-20",
                     "league_id": 128,
                     "season": 2024,
                     "home_team_id": 10,
@@ -62,7 +71,7 @@ class ApiFootballFixturesTest(unittest.TestCase):
                 },
                 {
                     "fixture_id": 123,
-                    "fixture_date": "2026-05-21",
+                    "fixture_date": "2024-05-21",
                     "league_id": 128,
                     "season": 2024,
                     "home_team_id": 30,

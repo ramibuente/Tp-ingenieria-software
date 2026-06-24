@@ -19,6 +19,7 @@ SRC_DIR = AIRFLOW_HOME / "src"
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
+from sports_analytics.config import API_FOOTBALL_MAX_SEASON, CURRENT_DATE, CURRENT_SEASON  # noqa: E402
 from sports_analytics.ingestion.api_football_fixtures import (  # noqa: E402
     append_request_log,
     build_fixture_quality_report,
@@ -77,7 +78,10 @@ def _validate_dwh(**context) -> None:
 
 def _validate_config(**context) -> dict[str, object]:
     league_ids = _parse_league_ids()
-    season = int(_config_value("api_football_season", "API_FOOTBALL_SEASON"))
+    season_raw = _config_value("api_football_season", "API_FOOTBALL_SEASON", required=False)
+    season = int(season_raw) if season_raw else CURRENT_SEASON
+    if season > API_FOOTBALL_MAX_SEASON:
+        raise ValueError(f"API-Football solo acepta temporadas hasta {API_FOOTBALL_MAX_SEASON}.")
     next_count_raw = _config_value("api_football_next_fixtures", "API_FOOTBALL_NEXT_FIXTURES", required=False)
     next_count = int(next_count_raw) if next_count_raw else None
     if next_count is not None and next_count < 1:
@@ -288,7 +292,7 @@ def _fetch_fixture_events(**context) -> int:
         return 0
 
     finished["fixture_date"] = pd.to_datetime(finished["fixture_date"], errors="coerce", utc=True)
-    cutoff = pd.Timestamp.now(tz="UTC") - pd.Timedelta(days=7)
+    cutoff = pd.Timestamp(CURRENT_DATE).tz_localize("UTC") - pd.Timedelta(days=7)
     recent = finished[finished["fixture_date"] >= cutoff].head(MAX_EVENTS_FIXTURES)
 
     fetched = 0

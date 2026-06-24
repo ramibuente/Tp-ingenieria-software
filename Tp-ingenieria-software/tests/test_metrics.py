@@ -62,8 +62,8 @@ class TeamMetricsTest(unittest.TestCase):
                 },
                 {
                     "game_id": 2,
-                    "date": "2999-01-01",
-                    "season": 2999,
+                    "date": "2025-01-01",
+                    "season": 2025,
                     "competition_id": "L1",
                     "home_club_id": 10,
                     "away_club_id": 20,
@@ -71,6 +71,18 @@ class TeamMetricsTest(unittest.TestCase):
                     "away_club_name": "Visitante",
                     "home_club_goals": 0,
                     "away_club_goals": 0,
+                },
+                {
+                    "game_id": 3,
+                    "date": "2999-01-01",
+                    "season": 2999,
+                    "competition_id": "L1",
+                    "home_club_id": 10,
+                    "away_club_id": 20,
+                    "home_club_name": "Local",
+                    "away_club_name": "Visitante",
+                    "home_club_goals": 4,
+                    "away_club_goals": 4,
                 },
             ]
         )

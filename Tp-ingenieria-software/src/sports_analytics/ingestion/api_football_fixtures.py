@@ -13,6 +13,8 @@ from sports_analytics.config import (
     API_FOOTBALL_EVENTS_RAW_DIR,
     API_FOOTBALL_FIXTURES_RAW_DIR,
     API_FOOTBALL_PARQUET_DIR,
+    CURRENT_DATE,
+    CURRENT_YEAR,
     QUALITY_REPORTS_DIR,
     REQUEST_LOG_DIR,
 )
@@ -77,7 +79,7 @@ class IngestionArtifacts:
 
 
 def utc_now_iso() -> str:
-    return datetime.now(UTC).replace(microsecond=0).isoformat()
+    return datetime.now(UTC).replace(year=CURRENT_YEAR, microsecond=0).isoformat()
 
 
 def save_raw_fixture_payload(
@@ -172,6 +174,8 @@ def normalize_fixture_payload(raw_content: dict[str, Any]) -> pd.DataFrame:
     for column in ["fixture_id", "fixture_timestamp", "league_id", "season", "home_team_id", "away_team_id", "goals_home", "goals_away", "score_ht_home", "score_ht_away", "score_ft_home", "score_ft_away"]:
         if column in frame.columns:
             frame[column] = pd.to_numeric(frame[column], errors="coerce")
+    current_cutoff = pd.Timestamp(CURRENT_DATE).tz_localize("UTC")
+    frame = frame[frame["fixture_date"].isna() | (frame["fixture_date"] <= current_cutoff)]
     return frame
 
 

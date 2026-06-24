@@ -5,7 +5,12 @@ import sys
 
 import pandas as pd
 
-from sports_analytics.config import API_FOOTBALL_FIXTURES_RAW_DIR, API_FOOTBALL_PARQUET_DIR
+from sports_analytics.config import (
+    API_FOOTBALL_FIXTURES_RAW_DIR,
+    API_FOOTBALL_MAX_SEASON,
+    API_FOOTBALL_PARQUET_DIR,
+    CURRENT_SEASON,
+)
 from sports_analytics.ingestion.api_football_fixtures import (
     append_request_log,
     build_fixture_quality_report,
@@ -22,13 +27,15 @@ from sports_analytics.services.api_football import ApiFootballError, fetch_fixtu
 def main() -> int:
     parser = argparse.ArgumentParser(description="Ingiere fixtures desde API-Football por liga/temporada.")
     parser.add_argument("--league", required=True, help="League ID o lista separada por coma, ejemplo: 128,39,140.")
-    parser.add_argument("--season", type=int, required=True, help="Temporada de API-Football.")
+    parser.add_argument("--season", type=int, default=CURRENT_SEASON, help=f"Temporada de API-Football. Maximo {API_FOOTBALL_MAX_SEASON}.")
     parser.add_argument("--next", dest="next_count", type=int, help="Cantidad de proximos fixtures a pedir.")
     parser.add_argument("--from-date", help="Fecha desde, formato YYYY-MM-DD.")
     parser.add_argument("--to-date", help="Fecha hasta, formato YYYY-MM-DD.")
     parser.add_argument("--team", type=int, help="Team ID opcional. Usarlo solo si hace falta.")
     parser.add_argument("--allow-quality-errors", action="store_true", help="Guarda artefactos aunque haya errores de calidad.")
     args = parser.parse_args()
+    if args.season > API_FOOTBALL_MAX_SEASON:
+        parser.error(f"--season no puede ser mayor a {API_FOOTBALL_MAX_SEASON}.")
 
     try:
         raw_paths = []

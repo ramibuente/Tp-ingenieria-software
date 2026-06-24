@@ -13,7 +13,14 @@ SRC_DIR = PROJECT_ROOT / "src"
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
-from sports_analytics.config import RAW_DIR
+from sports_analytics.config import (
+    API_FOOTBALL_FREE_PLAN_MIN_SEASON,
+    API_FOOTBALL_MAX_SEASON,
+    API_FOOTBALL_MIN_SEASON,
+    CURRENT_DATE,
+    CURRENT_SEASON,
+    RAW_DIR,
+)
 from sports_analytics.data_catalog import TABLES
 from sports_analytics.etl.csv_to_parquet import convert_table_to_parquet
 from sports_analytics.etl.quality import build_quality_report
@@ -234,7 +241,15 @@ def load_games(_data_version: tuple[float, ...]) -> pd.DataFrame:
         "home_club_formation",
         "away_club_formation",
     ]
-    return load_table_columns("games", columns)
+    games = load_table_columns("games", columns)
+    games["date"] = pd.to_datetime(games["date"], errors="coerce")
+    seasons = pd.to_numeric(games["season"], errors="coerce")
+    current_cutoff = pd.Timestamp(CURRENT_DATE)
+    current_mask = (
+        (games["date"].isna() | (games["date"] <= current_cutoff))
+        & (seasons.isna() | (seasons <= CURRENT_SEASON))
+    )
+    return games[current_mask]
 
 
 @st.cache_data(show_spinner=False)
@@ -480,16 +495,21 @@ def optional_int_filter(
     help_text: str = "",
     key: str | None = None,
     value: str = "",
+    max_value: int | None = None,
 ) -> tuple[int | None, bool]:
     raw_value = st.text_input(label, value=value, help=help_text, key=key)
     if not raw_value.strip():
         return None, True
 
     try:
-        return int(raw_value.strip()), True
+        parsed = int(raw_value.strip())
     except ValueError:
         st.warning(f"{label} debe ser un numero entero.")
         return None, False
+    if max_value is not None and parsed > max_value:
+        st.warning(f"{label} no puede ser mayor a {max_value}.")
+        return None, False
+    return parsed, True
 
 
 def format_fixture_datetime(value: object) -> str:
@@ -813,10 +833,16 @@ def api_fixture_rows(fixtures: list[UpcomingFixture]) -> list[dict[str, object]]
 
 API_FOOTBALL_LEAGUE_PRESETS = {
     "Personalizado": {"league_id": "", "season": ""},
-    "Argentina - Liga Profesional": {"league_id": "128", "season": "2026"},
-    "España - LaLiga": {"league_id": "140", "season": "2025"},
-    "Inglaterra - Premier League": {"league_id": "39", "season": "2025"},
+    "Argentina - Liga Profesional": {"league_id": "128", "season": str(CURRENT_SEASON)},
+    "España - LaLiga": {"league_id": "140", "season": str(CURRENT_SEASON)},
+    "Inglaterra - Premier League": {"league_id": "39", "season": str(CURRENT_SEASON)},
 }
+
+
+API_FOOTBALL_SEASON_OPTIONS = list(range(API_FOOTBALL_MAX_SEASON, API_FOOTBALL_MIN_SEASON - 1, -1))
+API_FOOTBALL_FREE_PLAN_SEASON_OPTIONS = list(
+    range(API_FOOTBALL_MAX_SEASON, API_FOOTBALL_FREE_PLAN_MIN_SEASON - 1, -1)
+)
 
 
 TEAM_COMPARISON_PRESETS = {
@@ -882,7 +908,8 @@ Este campo aparece solo porque no se detectó una clave configurada en el entorn
                 "Temporada",
                 key=f"upcoming_season_{preset_name}",
                 value=preset["season"],
-                help_text="Ejemplo: 2026 para Argentina; 2025 para ligas europeas 2025/26.",
+                help_text=f"La API y los datos del proyecto llegan hasta {API_FOOTBALL_MAX_SEASON}.",
+                max_value=API_FOOTBALL_MAX_SEASON,
             )
         with controls[2]:
             api_team_id, team_ok = optional_int_filter(
@@ -926,6 +953,12 @@ Este campo aparece solo porque no se detectó una clave configurada en el entorn
             st.info(str(exc))
             return
         except ApiFootballError as exc:
+            if "Free plans do not have access to this season" in str(exc):
+                st.warning(
+                    f"El plan gratuito de API-Football solo permite temporadas "
+                    f"entre {API_FOOTBALL_FREE_PLAN_MIN_SEASON} y {API_FOOTBALL_MAX_SEASON}."
+                )
+                return
             st.error(f"No se pudo consultar API-Football. {exc}")
             return
 
@@ -1088,7 +1121,10 @@ def render_league_tab() -> None:
     )
     preset = API_FOOTBALL_LEAGUE_PRESETS[preset_name]
     with st.expander("Ajustes avanzados"):
-        st.caption("Si la liga elegida no devuelve datos, probá una temporada que cubra el plan gratuito (por ejemplo 2023).")
+        st.caption(
+            f"El plan gratuito de API-Football permite consultar tablas entre "
+            f"{API_FOOTBALL_FREE_PLAN_MIN_SEASON} y {API_FOOTBALL_MAX_SEASON}."
+        )
         controls = st.columns(2)
         with controls[0]:
             league_id, league_ok = optional_int_filter(
@@ -1098,12 +1134,17 @@ def render_league_tab() -> None:
                 help_text="Ejemplo: Argentina 128, LaLiga 140, Premier League 39.",
             )
         with controls[1]:
-            season, season_ok = optional_int_filter(
+            preset_season = int(preset["season"] or CURRENT_SEASON)
+            season = st.selectbox(
                 "Temporada",
+                API_FOOTBALL_FREE_PLAN_SEASON_OPTIONS,
+                index=API_FOOTBALL_FREE_PLAN_SEASON_OPTIONS.index(preset_season)
+                if preset_season in API_FOOTBALL_FREE_PLAN_SEASON_OPTIONS
+                else 0,
                 key=f"standings_season_{preset_name}",
-                value=preset["season"],
-                help_text="Año de inicio de la temporada. Ejemplo: 2023.",
+                help=f"Con plan gratuito: {API_FOOTBALL_FREE_PLAN_MIN_SEASON} a {API_FOOTBALL_MAX_SEASON}.",
             )
+            season_ok = True
 
     if not api_key:
         st.info("Falta configurar la clave de API-Football para consultar la tabla de posiciones.")
@@ -1123,37 +1164,30 @@ def render_league_tab() -> None:
             st.info(str(exc))
             return
         except ApiFootballError as exc:
+            if "Free plans do not have access to this season" in str(exc):
+                st.warning(
+                    f"El plan gratuito de API-Football solo permite tablas de posiciones "
+                    f"entre {API_FOOTBALL_FREE_PLAN_MIN_SEASON} y {API_FOOTBALL_MAX_SEASON}."
+                )
+                return
             st.error(f"No se pudo consultar API-Football. {exc}")
             return
 
     standings: list[TeamStanding] | None = st.session_state.get("league_standings")
     if not standings:
         if standings is not None:
-            st.warning("No se encontraron posiciones para esa liga y temporada. Probá con otra temporada (por ejemplo 2023).")
+            st.warning(f"No se encontraron posiciones para esa liga y temporada. Probá con otra temporada hasta {API_FOOTBALL_MAX_SEASON}.")
         return
 
     df = standings_to_dataframe(standings)
     render_standings_betting_cards(df)
-    st.dataframe(df.set_index("Pos"), use_container_width=True)
+    st.dataframe(df.set_index("Pos"), width="stretch")
 
     team_names = df["Equipo"].tolist()
     selected_team = st.selectbox("Ver lectura para la previa de un equipo", team_names, key="standings_team_read")
     render_team_betting_read(standings, selected_team)
 
     render_disclaimer()
-
-
-def render_fixture_selector(games: pd.DataFrame) -> bool:
-    mode = st.radio(
-        "Modo de análisis",
-        ["Comparar equipos", "Buscar partido próximo"],
-        horizontal=True,
-    )
-    if mode == "Buscar partido próximo":
-        render_api_fixture_selector(games)
-        return False
-
-    return True
 
 
 def render_team_comparison_content(
@@ -1296,17 +1330,8 @@ def render_match_tab(games: pd.DataFrame) -> None:
     render_disclaimer()
     render_intro_panel(
         "Analizar equipos",
-        "Compará dos equipos con datos históricos o buscá un partido próximo para que la app complete los equipos automáticamente.",
+        "Compará dos equipos con datos históricos para revisar rendimiento reciente, tendencias y enfrentamientos directos.",
     )
-
-    try:
-        show_manual_comparison = render_fixture_selector(games)
-    except Exception as exc:
-        st.error(f"No se pudo mostrar esta sección. Detalle: {exc}")
-        show_manual_comparison = True
-
-    if not show_manual_comparison:
-        return
 
     st.markdown('<div class="section-title">Compará dos equipos</div>', unsafe_allow_html=True)
     render_guide_steps(
